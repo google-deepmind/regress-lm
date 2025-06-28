@@ -3,6 +3,6 @@ numpy
 ordered-set
 
 # Technically optional below. Consider using try/except import handling.
-torch==2.3.0
+torch==2.7.1
 torchtext==0.18.0
 sentencepiece
