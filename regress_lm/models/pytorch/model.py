@@ -106,28 +106,32 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     # Effectively, new batch_size = B * num_samples
     # memory: (B, L_src, D) -> (B, 1, L_src, D) -> (B, S, L_src, D)
     # -> (B*S, L_src, D)
+    encoder_input_device = encoder_input.device
     expanded_memory = (
         memory.unsqueeze(1)
         .repeat(1, num_samples, 1, 1)
         .view(batch_size * num_samples, memory.size(1), memory.size(2))
-    )
+    ).to(encoder_input_device)
     expanded_memory_key_padding_mask = (
         memory_key_padding_mask.unsqueeze(1)
         .repeat(1, num_samples, 1)
         .view(batch_size * num_samples, memory_key_padding_mask.size(1))
-    )
+    ).to(encoder_input_device)
 
     # Initialize decoder input for the expanded batch, start with <pad>.
     current_tgt_ids = torch.full(
         (batch_size * num_samples, 1),
         self.decoder_vocab.bos_pad_id,
         dtype=torch.long,
+        device=encoder_input_device,
     )
 
     # Store all generated token IDs for all sequences in the expanded batch
     decode_len = self.decoder_vocab.decode_len
     generated_sequences_ids = torch.zeros(
-        (batch_size * num_samples, decode_len), dtype=torch.long
+        (batch_size * num_samples, decode_len),
+        dtype=torch.long,
+        device=encoder_input_device,
     )
 
     # Batched autoregressive decoding loop
@@ -271,8 +275,12 @@ class PyTorchFineTuner(model_base.FineTuner):
       batch_size: int | None = None,
       seed: int | None = None,
   ) -> None:
+    device = next(self.model.parameters()).device
     validation_examples = validation_examples or examples
     validation_tensors = self.model.convert_examples(validation_examples)
+    validation_tensors = {
+        k: v.to(device) for k, v in validation_tensors.items()
+    }
     batch_size = batch_size or len(examples)
     train_tensors = self.model.convert_examples(examples)
     rng = np.random.RandomState(seed)
@@ -294,7 +302,7 @@ class PyTorchFineTuner(model_base.FineTuner):
       all_indices = rng.permutation(len(examples))
       for i in range(num_batches):
         inds = all_indices[i * batch_size : (i + 1) * batch_size]
-        batch = {k: v[inds] for k, v in train_tensors.items()}
+        batch = {k: v[inds].to(device) for k, v in train_tensors.items()}
         _train_step(self.model, self.optimizer, batch)
       state = self.model.state_dict()
 
