@@ -10,7 +10,7 @@ regression tasks.
 <p align="center" width=65%>
 <img src="https://raw.githubusercontent.com/akhauriyash/figures_placeholder/refs/heads/main/teaser_rlm_compressed.gif" alt="RegressLM decoding a numerical performance metric from text."/>
   <br>
-  <figcaption style="text-align: center;"><em><b>Example Application: Directly regressing performance metrics from unstructured, textually represented system states from Google's compute clusters.</b></em></figcaption>
+  <figcaption style="text-align: center;"><em><b><a href="https://arxiv.org/abs/2506.21718">Example Application</a>: Directly regressing performance metrics from unstructured, textually represented system states from Google's massive compute clusters.</b></em></figcaption>
 </p>
 </figure>
 
