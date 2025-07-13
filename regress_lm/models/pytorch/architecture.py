@@ -14,6 +14,7 @@
 
 """Default PyTorch architecture for a RegressLM."""
 
+import copy
 import math
 from regress_lm import vocabs
 import torch
@@ -181,7 +182,9 @@ class RopeEncoder(nn.Module):
       norm: nn.LayerNorm | None,
   ):
     super().__init__()
-    self.layers = nn.ModuleList([encoder_layer for _ in range(num_layers)])
+    self.layers = nn.ModuleList(
+        [copy.deepcopy(encoder_layer) for _ in range(num_layers)]
+    )
     self.num_layers = num_layers
     self.norm = norm
 
