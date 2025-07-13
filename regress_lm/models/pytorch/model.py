@@ -58,10 +58,12 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
         **architecture_kwargs,
     )
 
-    # Pre-compute the constraint masks for the decoder.
-    self.register_buffer(
-        'decoder_constraint_masks', self._create_decoder_constraint_masks()
-    )
+    # Pre-compute the constraint masks for the decoder at train and test.
+    base_mask = self._create_decoder_constraint_masks()
+    bos_row = torch.ones((1, base_mask.size(1)), dtype=base_mask.dtype)
+    full_mask = torch.cat([base_mask, bos_row], dim=0)
+    self.register_buffer('decoder_constraint_masks', base_mask)
+    self.register_buffer('decoder_constraint_masks_train', full_mask)
 
   def compute_loss_and_metrics(
       self, examples: dict[str, Tensor]
@@ -70,9 +72,11 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     logits = self.encoder_decoder.forward(
         examples['encoder_input'], examples['decoder_input']
     )
+    mask = self.decoder_constraint_masks_train.to(logits.device).unsqueeze(0)
+    masked_logits = logits.masked_fill(mask == 0, NEG_INF)
     targets = examples['decoder_target']
     loss = F.cross_entropy(
-        logits.reshape(-1, logits.shape[-1]),  # (B * L_decode, V)
+        masked_logits.reshape(-1, masked_logits.shape[-1]),  # (B * L_decode, V)
         targets.reshape(-1),  # Reshape to (B * L_decode)
         ignore_index=self.decoder_vocab.bos_pad_id,
     )
@@ -80,7 +84,7 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
 
     if self.z_loss_coef is not None:
       # Calculate z_loss (log-softmax normalization constant).
-      log_z = torch.logsumexp(logits, dim=-1)  # (B * L_decode)
+      log_z = torch.logsumexp(masked_logits, dim=-1)  # (B * L_decode)
       z_loss_per_token = self.z_loss_coef * (log_z**2)
 
       # Calculate the mean z_loss over the real (non-padded) tokens.

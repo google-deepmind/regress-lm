@@ -77,7 +77,7 @@ class ModelTest(absltest.TestCase):
     # Update the model. Logprob should improve.
     pytorch_model._train_step(self.model, self.optimizer, examples)
     log_probs_after = self.model.log_prob(examples)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -23.71, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -23.86, 1)
 
   def test_decode(self):
     examples = self.model.convert_examples([core.Example(x="hello", y=2.123)])
@@ -93,7 +93,7 @@ class ModelTest(absltest.TestCase):
     # After updating, the median should get closer to target y.
     pytorch_model._train_step(self.model, self.optimizer, examples)
     _, output_floats = self.model.decode(examples, num_samples=128)
-    self.assertAlmostEqual(np.median(output_floats), 2.322)
+    self.assertAlmostEqual(np.median(output_floats), 2.233)
 
 
 if __name__ == "__main__":
