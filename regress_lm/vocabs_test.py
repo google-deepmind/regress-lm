@@ -14,6 +14,7 @@
 
 """Tests for vocab classes."""
 
+import pathlib
 from regress_lm import vocabs
 from absl.testing import absltest
 

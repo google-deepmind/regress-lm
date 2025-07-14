@@ -15,12 +15,15 @@
 """Custom vocab classes for RegressLM."""
 
 import abc
+import pathlib
 from typing import Generic, TypeVar
 from regress_lm import tokenizers
 import tokenizers as ht
-import sentencepiece as sp
+import sentencepiece as spp
+import sentencepiece as spt
 
-ObjectT = TypeVar('ObjectT')
+
+ObjectT = TypeVar("ObjectT")
 
 
 class BaseVocab(abc.ABC, Generic[ObjectT]):
@@ -53,7 +56,7 @@ class DecoderVocab(BaseVocab[ObjectT]):
   def __init__(self, tokenizer: tokenizers.DecoderTokenizer[ObjectT]):
     self.tokenizer = tokenizer
 
-    self.itos = ['<pad>'] + sorted(self.tokenizer.all_tokens())
+    self.itos = ["<pad>"] + sorted(self.tokenizer.all_tokens())
     self.stoi = {token: i for i, token in enumerate(self.itos)}
 
   def to_token_ids(self, obj: ObjectT, /) -> list[int]:
@@ -71,7 +74,7 @@ class DecoderVocab(BaseVocab[ObjectT]):
   @property
   def bos_pad_id(self) -> int:
     """Returns the BOS / PAD id for the decoder."""
-    return self.stoi['<pad>']
+    return self.stoi["<pad>"]
 
   @property
   def decode_len(self) -> int:
@@ -87,7 +90,7 @@ class BasicEnglishVocab(EncoderVocab[str]):
   """Basic English vocab for testing."""
 
   def __init__(self, words: list[str]):
-    specials = ['<pad>', '<unk>']
+    specials = ["<pad>", "<unk>"]
     # Build vocab dictionary ensuring special tokens have fixed IDs 0 and 1.
     vocab = {word: i + len(specials) for i, word in enumerate(words)}
     for i, token in enumerate(specials):
@@ -95,12 +98,12 @@ class BasicEnglishVocab(EncoderVocab[str]):
 
     # Instantiate a huggingface tokenizer with a WordLevel model
     self.tokenizer = ht.Tokenizer(
-        ht.models.WordLevel(vocab=vocab, unk_token='<unk>')
+        ht.models.WordLevel(vocab=vocab, unk_token="<unk>")
     )
     self.tokenizer.normalizer = ht.normalizers.Lowercase()
     self.tokenizer.pre_tokenizer = ht.pre_tokenizers.Whitespace()
 
-    pad_id_val = self.tokenizer.token_to_id('<pad>')
+    pad_id_val = self.tokenizer.token_to_id("<pad>")
     if pad_id_val is None:
       raise ValueError("'<pad>' token not found in the vocabulary.")
     self._pad_id = pad_id_val
@@ -122,17 +125,17 @@ class StructuredTextVocab(EncoderVocab[str]):
   NOTE: Not working right now, pre_tokenizer is being completely ignored.
   """
 
-  def __init__(self, tokens: list[str], split_regex: str = r'([\{\}\[\]:,])'):
-    specials = ['<pad>', '<unk>']
+  def __init__(self, tokens: list[str], split_regex: str = r"([\{\}\[\]:,])"):
+    specials = ["<pad>", "<unk>"]
 
     self.vocab = {token: i + len(specials) for i, token in enumerate(tokens)}
     self.vocab.update({special: i for i, special in enumerate(specials)})
 
     self.tokenizer = ht.Tokenizer(
-        ht.models.WordLevel(vocab=self.vocab, unk_token='<unk>')
+        ht.models.WordLevel(vocab=self.vocab, unk_token="<unk>")
     )
     pre_tokenizer = ht.pre_tokenizers.Split(
-        pattern=split_regex, behavior='isolated'
+        pattern=split_regex, behavior="isolated"
     )
     self.tokenizer.pre_tokenizer = pre_tokenizer
 
@@ -143,7 +146,7 @@ class StructuredTextVocab(EncoderVocab[str]):
   @property
   def pad_id(self) -> int:
     """Returns the pad id."""
-    return self.vocab['<pad>']
+    return self.vocab["<pad>"]
 
   def __len__(self) -> int:
     """Returns the total vocabulary size."""
@@ -153,11 +156,11 @@ class StructuredTextVocab(EncoderVocab[str]):
 class SentencePieceVocab(EncoderVocab[str]):
   """SentencePiece vocab."""
 
-  T5_FILE = 'gs://t5-data/vocabs/cc_all.32000.100extra/sentencepiece.model'
+  T5_FILE = "gs://t5-data/vocabs/cc_all.32000.100extra/sentencepiece.model"
 
   def __init__(self, file_path: str):
     """Initializes SentencePieceVocab by loading a pre-trained .model file."""
-    self.sp_processor = sp.SentencePieceProcessor()
+    self.sp_processor = spp.SentencePieceProcessor()
 
     if file_path.startswith('gs://'):  # Check Google Cloud Storage path.
       import gcsfs, os
@@ -171,7 +174,7 @@ class SentencePieceVocab(EncoderVocab[str]):
     if self.sp_processor.pad_id() == -1:
       raise ValueError(
           f"SentencePiece model '{file_path}' does not have a PAD token"
-          ' explicitly defined.'
+          " explicitly defined."
       )
 
   def to_token_ids(self, obj: str, /) -> list[int]:
@@ -188,5 +191,43 @@ class SentencePieceVocab(EncoderVocab[str]):
     return self.sp_processor.GetPieceSize()
 
   @classmethod
-  def from_t5(cls) -> 'SentencePieceVocab':
+  def from_t5(cls) -> "SentencePieceVocab":
     return cls(cls.T5_FILE)
+
+  @classmethod
+  def from_corpus(
+      cls,
+      corpus_path: str | pathlib.Path,
+      vocab_size: int = 8192,
+      model_prefix: str | pathlib.Path | None = None,
+      sentencepiece_trainer_kwargs: dict[str, str] | None = None,
+  ) -> "SentencePieceVocab":
+    """Trains a SentencePiece vocab from the given corpus."""
+    if model_prefix is None:
+      model_prefix = pathlib.Path("/tmp/trained_sentencepiece")
+
+    trainer_args = {
+        "input": str(corpus_path),
+        "model_prefix": str(model_prefix),
+        "vocab_size": str(vocab_size),
+        "model_type": "bpe",
+        "pad_id": "0",
+        "unk_id": "1",
+        "pad_piece": "<pad>",
+        "unk_piece": "<unk>",
+        "bos_id": "-1",
+        "eos_id": "-1",
+        "hard_vocab_limit": "false",
+        "byte_fallback": "true",
+        "split_by_number": "false",
+        "split_by_unicode_script": "false",
+        "character_coverage": "1.0",
+        "input_sentence_size": "0",
+        "max_sentence_length": "500000",
+        "shuffle_input_sentence": "false",
+        "num_threads": "1",
+    }
+    if sentencepiece_trainer_kwargs:
+      trainer_args.update(sentencepiece_trainer_kwargs)
+    spt.SentencePieceTrainer.TrainArgs(trainer_args)
+    return cls(str(model_prefix) + ".model")
