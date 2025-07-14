@@ -60,8 +60,26 @@ for _ in range(...):
   optimizer.step()
 ```
 
-## Contributors and Citation
+## Boosting Performance
+Below, we describe many ways to improve performance.
 
+### Train Custom Vocabulary
+You can generate a custom vocabulary, trained on an offline corpus of data
+`mydata.txt`:
+
+```python
+encoder_vocab = SentencePieceVocab.from_corpus(corpus_path='mydata.txt', vocab_size=1024)
+```
+
+### Larger Sizes
+Larger model sizes may increase performance, although with more computational
+cost:
+
+```python
+model = PyTorchModel(num_encoder_layers=12, num_decoder_layers=12)
+```
+
+## Contributors and Citation
 The codebase was written by: Xingyou Song, Yash Akhauri, Dara Bahri, Michal
 Lukasik, Arissa Wongpanich, Adrian N. Reyes, and Bryan Lewandowski.
 
