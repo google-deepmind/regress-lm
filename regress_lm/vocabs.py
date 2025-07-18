@@ -251,5 +251,6 @@ class SentencePieceVocab(EncoderVocab[str]):
     }
     if sentencepiece_trainer_kwargs:
       trainer_args.update(sentencepiece_trainer_kwargs)
-    spt.SentencePieceTrainer.TrainArgs(trainer_args)
+    cmd = " ".join(f"--{k}={v}" for k, v in trainer_args.items())
+    spt.SentencePieceTrainer.Train(cmd)
     return cls(str(model_prefix) + ".model")
