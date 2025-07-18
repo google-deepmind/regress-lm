@@ -16,7 +16,7 @@
 
 import abc
 import pathlib
-from typing import Generic, TypeVar
+from typing import Generic, Sequence, TypeVar
 from regress_lm import tokenizers
 import tokenizers as ht
 import sentencepiece as spp
@@ -51,7 +51,15 @@ class EncoderVocab(BaseVocab[ObjectT]):
 
 
 class DecoderVocab(BaseVocab[ObjectT]):
-  """Vocabulary class for decoders."""
+  """Vocabulary class for decoders.
+
+  Supports single objective and multi-objective cases.
+
+  For multi-objective, the output is simply the concatenation of tokens for each
+  objective.
+  """
+
+  # TODO: Do we need multi-objective separator tokens (via BOS)?
 
   def __init__(self, tokenizer: tokenizers.DecoderTokenizer[ObjectT]):
     self.tokenizer = tokenizer
@@ -59,16 +67,30 @@ class DecoderVocab(BaseVocab[ObjectT]):
     self.itos = ["<pad>"] + sorted(self.tokenizer.all_tokens())
     self.stoi = {token: i for i, token in enumerate(self.itos)}
 
-  def to_token_ids(self, obj: ObjectT, /) -> list[int]:
-    return [self.stoi[t] for t in self.tokenizer.to_tokens(obj)]
+  def to_token_ids(self, obj: ObjectT | Sequence[ObjectT], /) -> list[int]:
+    obj = obj if isinstance(obj, Sequence) else [obj]
+    all_tokens = []
+    for o in obj:
+      all_tokens.extend(self.tokenizer.to_tokens(o))
+    return [self.stoi[t] for t in all_tokens]
 
-  def from_token_ids(self, token_ids: list[int], /) -> ObjectT:
+  def from_token_ids(self, token_ids: Sequence[int], /) -> list[ObjectT]:
     """Converts token ids to object."""
-    token_strs = [self.itos[id] for id in token_ids]
-    return self.tokenizer.from_tokens(token_strs)
+    token_strs = [self.itos[id] for id in token_ids if id != self.bos_pad_id]
+
+    if len(token_strs) % self.num_tokens_per_obj != 0:
+      raise ValueError("Tokens not a multiple of tokens per object.")
+
+    decoded_objs = []
+    for i in range(0, len(token_strs), self.num_tokens_per_obj):
+      chunk = token_strs[i : i + self.num_tokens_per_obj]
+      decoded_objs.append(self.tokenizer.from_tokens(chunk))
+
+    return decoded_objs
 
   def token_ids_at_index(self, index: int) -> list[int]:
     """Returns the token ids for the given index."""
+    index = index % self.num_tokens_per_obj
     return [self.stoi[t] for t in self.tokenizer.tokens_at_index(index)]
 
   @property
@@ -77,8 +99,8 @@ class DecoderVocab(BaseVocab[ObjectT]):
     return self.stoi["<pad>"]
 
   @property
-  def decode_len(self) -> int:
-    """Returns the number of tokens used to represent each float."""
+  def num_tokens_per_obj(self) -> int:
+    """Returns the number of tokens used to represent each object."""
     return self.tokenizer.num_tokens_per_obj
 
   def __len__(self) -> int:

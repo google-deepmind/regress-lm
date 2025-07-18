@@ -16,7 +16,6 @@
 
 import copy
 import math
-from regress_lm import vocabs
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -230,9 +229,11 @@ class EncoderDecoder(nn.Module):
 
   def __init__(
       self,
-      encoder_vocab: vocabs.EncoderVocab,
-      decoder_vocab: vocabs.DecoderVocab,
+      encoder_vocab_size: int,
+      decoder_vocab_size: int,
+      encoder_pad_idx: int,
       max_encoder_len: int,
+      max_decoder_len: int,
       d_model: int,
       nhead: int,
       num_encoder_layers: int,
@@ -242,9 +243,9 @@ class EncoderDecoder(nn.Module):
   ):
     super().__init__()
     self.d_model = d_model
-    self.encoder_pad_idx = encoder_vocab.pad_id
-    self.src_tok_emb = nn.Embedding(len(encoder_vocab), d_model)
-    self.tgt_tok_emb = nn.Embedding(len(decoder_vocab), d_model)
+    self.encoder_pad_idx = encoder_pad_idx
+    self.src_tok_emb = nn.Embedding(encoder_vocab_size, d_model)
+    self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, d_model)
     self.emb_dropout = nn.Dropout(dropout)
 
     # RoPE Encoder for best length generalization.
@@ -260,7 +261,7 @@ class EncoderDecoder(nn.Module):
     # We use a standard positional encoding and decoder.
     self.decoder_positional_encoding = PositionalEncoding(
         d_model,
-        max_len=decoder_vocab.decode_len + 1,
+        max_len=max_decoder_len,
         dropout=dropout,
     )
     decoder_layer = nn.TransformerDecoderLayer(
@@ -275,7 +276,7 @@ class EncoderDecoder(nn.Module):
         decoder_layer, num_layers=num_decoder_layers
     )
 
-    self.generator = nn.Linear(d_model, len(decoder_vocab))
+    self.generator = nn.Linear(d_model, decoder_vocab_size)
 
   def _generate_causal_mask(self, sz: int) -> torch.Tensor:
     return torch.triu(torch.full((sz, sz), float("-inf")), diagonal=1)

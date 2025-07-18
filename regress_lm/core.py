@@ -15,6 +15,7 @@
 """Core API for RegressLM."""
 
 import dataclasses
+from typing import Sequence
 
 
 # High-level example.
@@ -25,4 +26,4 @@ class ExampleInput:
 
 @dataclasses.dataclass
 class Example(ExampleInput):
-  y: float
+  y: float | Sequence[float]

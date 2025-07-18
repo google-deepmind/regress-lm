@@ -40,21 +40,25 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
       encoder_vocab: vocabs.EncoderVocab[str],
       decoder_vocab: vocabs.DecoderVocab[float],
       max_input_len: int = 2048,
+      max_num_objs: int = 1,
       learning_rate: float = 1e-4,
       z_loss_coef: float | None = None,
       **architecture_kwargs,
   ):
     super().__init__()
     self.max_input_len = max_input_len
+    self.max_num_objs = max_num_objs
     self.z_loss_coef = z_loss_coef
 
     self.encoder_vocab = encoder_vocab
     self.decoder_vocab = decoder_vocab
 
     self.encoder_decoder = architecture.EncoderDecoder(
-        encoder_vocab=self.encoder_vocab,
-        decoder_vocab=self.decoder_vocab,
+        encoder_vocab_size=len(self.encoder_vocab),
+        decoder_vocab_size=len(self.decoder_vocab),
+        encoder_pad_idx=self.encoder_vocab.pad_id,
         max_encoder_len=self.max_input_len,
+        max_decoder_len=self.decode_len + 1,
         **architecture_kwargs,
     )
 
@@ -62,6 +66,10 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     self.register_buffer(
         'decoder_constraint_masks', self._create_decoder_constraint_masks()
     )
+
+  @property
+  def decode_len(self) -> int:
+    return self.max_num_objs * self.decoder_vocab.num_tokens_per_obj
 
   def compute_loss_and_metrics(
       self, examples: dict[str, Tensor]
@@ -130,13 +138,14 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     )
 
     # Store all generated token IDs for all sequences in the expanded batch
-    decode_len = self.decoder_vocab.decode_len
     generated_sequences_ids = torch.zeros(
-        (batch_size * num_samples, decode_len), dtype=torch.long, device=device
+        (batch_size * num_samples, self.decode_len),
+        dtype=torch.long,
+        device=device,
     )
 
     # Batched autoregressive decoding loop
-    for step_idx in range(decode_len):
+    for step_idx in range(self.decode_len):
       # Get logits for the next token for all (B * num_samples) sequences
       # Shape: (B*S, V)
       logits = self.encoder_decoder.next_token_logits(
@@ -155,19 +164,21 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
       generated_sequences_ids[:, step_idx] = token_ids.squeeze(-1)
 
       # Prepare input for the next step, but only if not the last float token
-      if step_idx < decode_len - 1:
+      if step_idx < self.decode_len - 1:
         current_tgt_ids = torch.cat([current_tgt_ids, token_ids], dim=1)
 
     # Reshape outputs back to (B, num_samples, L_decode)
     final_decoded_ids = generated_sequences_ids.view(
-        batch_size, num_samples, decode_len
+        batch_size, num_samples, self.decode_len
     )
 
     # Compute equivalent floats.
-    output_floats = np.zeros((batch_size, num_samples), dtype=float)
+    output_floats = np.zeros(
+        (batch_size, num_samples, self.max_num_objs), dtype=float
+    )
     for b in range(batch_size):
       for s_idx in range(num_samples):
-        output_floats[b, s_idx] = self.decoder_vocab.from_token_ids(
+        output_floats[b, s_idx, :] = self.decoder_vocab.from_token_ids(
             final_decoded_ids[b, s_idx, :].tolist()
         )
 
@@ -203,10 +214,22 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
       self, examples: Sequence[core.Example]
   ) -> dict[str, Tensor]:
     y_values = [example.y for example in examples]
-    y_tokens = [self.decoder_vocab.to_token_ids(y) for y in y_values]
+    y_tokens_list = [self.decoder_vocab.to_token_ids(y) for y in y_values]
+
+    decoder_inputs = []
+    decoder_targets = []
+    pad_id = self.decoder_vocab.bos_pad_id
+
+    for t in y_tokens_list:
+      padding_needed = self.decode_len - len(t)
+      # Input: [pad, t_1, ..., t_n, pad, ..., pad]
+      decoder_inputs.append([pad_id] + t + [pad_id] * padding_needed)
+      # Target: [t_1, ..., t_n, pad, ..., pad]
+      decoder_targets.append(t + [pad_id] * (padding_needed + 1))
+
     decoder_out = {
-        'decoder_input': torch.tensor([self._pad_front(t) for t in y_tokens]),
-        'decoder_target': torch.tensor([self._pad_last(t) for t in y_tokens]),
+        'decoder_input': torch.tensor(decoder_inputs),
+        'decoder_target': torch.tensor(decoder_targets),
     }
     return self.convert_inputs(examples) | decoder_out
 
@@ -216,22 +239,13 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
       return token_ids[: self.max_input_len]
     return token_ids + [encoder_pad_idx] * (self.max_input_len - len(token_ids))
 
-  def _pad_last(self, token_ids: list[int]) -> list[int]:
-    return token_ids + [self.decoder_vocab.bos_pad_id]
-
-  def _pad_front(self, token_ids: list[int]) -> list[int]:
-    return [self.decoder_vocab.bos_pad_id] + token_ids
-
   def _create_decoder_constraint_masks(self) -> torch.Tensor:
-    num_float_tokens = self.decoder_vocab.decode_len
     vocab_size = len(self.decoder_vocab)
-
-    logits_masks_np = np.zeros((num_float_tokens, vocab_size), dtype=np.float32)
-    for step_idx in range(num_float_tokens):
+    masks = np.zeros((self.decode_len, vocab_size), dtype=np.float32)
+    for step_idx in range(self.decode_len):
       for allowed_token_id in self.decoder_vocab.token_ids_at_index(step_idx):
-        logits_masks_np[step_idx, allowed_token_id] = 1.0
-
-    return torch.from_numpy(logits_masks_np)
+        masks[step_idx, allowed_token_id] = 1.0
+    return torch.from_numpy(masks)
 
 
 def _detect_overfitting(losses: Sequence[float]) -> bool:

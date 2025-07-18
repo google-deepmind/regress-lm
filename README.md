@@ -60,8 +60,8 @@ for _ in range(...):
   optimizer.step()
 ```
 
-## Boosting Performance
-Below, we describe many ways to improve performance.
+## Boosting Performance and Extended Applications
+Below, we describe ways to improve performance and extended applications.
 
 ### Train Custom Vocabulary
 You can generate a custom vocabulary, trained on an offline corpus of data
@@ -77,6 +77,21 @@ cost:
 
 ```python
 model = PyTorchModel(num_encoder_layers=12, num_decoder_layers=12)
+```
+
+### Multi-objective Support
+The RLM can decode a concatenated sequence of tokens too, for multi-objective
+regression:
+
+```python
+reg_lm = rlm.RegressLM.from_default(max_num_objs=2)
+
+# Examples can have variable objective lengths.
+examples = [core.Example(x='hello', y=[0.2]), core.Example(x='world', y=[-0.2, 0.3])]
+reg_lm.fine_tune(examples)
+
+# Now `samples` has shape (128, 2).
+samples = reg_lm.sample([core.ExampleInput(x='hi')], num_samples=128)[0]
 ```
 
 ## Contributors and Citation

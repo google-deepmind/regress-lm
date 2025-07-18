@@ -48,6 +48,7 @@ class RegressLM:
         encoder_vocab=encoder_vocab,
         decoder_vocab=decoder_vocab,
         max_input_len=kwargs.get("max_input_len", 2048),
+        max_num_objs=kwargs.get("max_num_objs", 1),
         learning_rate=kwargs.get("learning_rate", 1e-4),
         d_model=kwargs.get("d_model", 512),
         nhead=kwargs.get("nhead", 8),

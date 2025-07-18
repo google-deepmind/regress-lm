@@ -14,8 +14,6 @@
 
 """Tests for the PyTorch architecture."""
 
-from regress_lm import tokenizers
-from regress_lm import vocabs
 from regress_lm.models.pytorch import architecture
 import torch
 from absl.testing import absltest
@@ -25,18 +23,23 @@ class ArchitectureTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
+    self.encoder_vocab_size = 10
+    self.decoder_vocab_size = 5
+    self.encoder_pad_idx = 0
+    self.decoder_pad_idx = 0
     self.max_encoder_len = 15
+    self.max_decoder_len = 6 + 1
+
+    self.src_seq_len = 10  # Less than max_encoder_len
+
     self.d_model = 32
 
-    self.encoder_vocab = vocabs.BasicEnglishVocab(
-        ["hello", "world", "foo", "bar"]
-    )
-    self.decoder_vocab = vocabs.DecoderVocab(tokenizers.P10Tokenizer())
-
     self.model = architecture.EncoderDecoder(
-        encoder_vocab=self.encoder_vocab,
-        decoder_vocab=self.decoder_vocab,
+        encoder_vocab_size=self.encoder_vocab_size,
+        decoder_vocab_size=self.decoder_vocab_size,
+        encoder_pad_idx=self.encoder_pad_idx,
         max_encoder_len=self.max_encoder_len,
+        max_decoder_len=self.max_decoder_len,
         d_model=self.d_model,
         nhead=2,
         num_encoder_layers=1,
@@ -47,35 +50,33 @@ class ArchitectureTest(absltest.TestCase):
 
     # Dummy data parameters
     self.batch_size = 2
-    self.src_seq_len = 10
-    self.tgt_seq_len = self.decoder_vocab.decode_len + 1
 
   def test_forward(self):
     src = torch.randint(
-        1, len(self.encoder_vocab), (self.batch_size, self.src_seq_len)
+        1, self.encoder_vocab_size, (self.batch_size, self.src_seq_len)
     )
     # Add some padding to src
-    src[0, -2:] = self.encoder_vocab.pad_id
-    src[1, -1:] = self.encoder_vocab.pad_id
+    src[0, -2:] = self.encoder_pad_idx
+    src[1, -1:] = self.encoder_pad_idx
 
     tgt_input = torch.randint(
-        1, len(self.decoder_vocab), (self.batch_size, self.tgt_seq_len)
+        1, self.decoder_vocab_size, (self.batch_size, self.max_decoder_len)
     )
     # Add some padding to tgt_input
-    tgt_input[0, -1:] = self.decoder_vocab.bos_pad_id
+    tgt_input[0, -1:] = self.decoder_pad_idx
 
     output_logits = self.model(src, tgt_input)
 
     self.assertEqual(
         output_logits.shape,
-        (self.batch_size, self.tgt_seq_len, len(self.decoder_vocab)),
+        (self.batch_size, self.max_decoder_len, self.decoder_vocab_size),
     )
 
   def test_encode(self):
     src = torch.randint(
-        1, len(self.encoder_vocab), (self.batch_size, self.src_seq_len)
+        1, self.encoder_vocab_size, (self.batch_size, self.src_seq_len)
     )
-    src[0, -3:] = self.encoder_vocab.pad_id  # Add padding
+    src[0, -3:] = self.encoder_pad_idx  # Add padding
 
     memory, memory_key_padding_mask = self.model.encode(src)
 
@@ -92,7 +93,7 @@ class ArchitectureTest(absltest.TestCase):
 
   def test_next_token_logits(self):
     src = torch.randint(
-        1, len(self.encoder_vocab), (self.batch_size, self.src_seq_len)
+        1, self.encoder_vocab_size, (self.batch_size, self.src_seq_len)
     )
     memory, memory_key_padding_mask = self.model.encode(src)
 
@@ -100,7 +101,7 @@ class ArchitectureTest(absltest.TestCase):
     current_tgt_len = 1
     current_tgt_seq = torch.full(
         (self.batch_size, current_tgt_len),
-        self.decoder_vocab.bos_pad_id,
+        self.decoder_pad_idx,
         dtype=torch.long,
     )
 
@@ -109,37 +110,37 @@ class ArchitectureTest(absltest.TestCase):
     )
 
     self.assertEqual(
-        next_token_logits.shape, (self.batch_size, len(self.decoder_vocab))
+        next_token_logits.shape, (self.batch_size, self.decoder_vocab_size)
     )
 
     # Simulate decoding a few more steps
     current_tgt_len = 3
     current_tgt_seq = torch.randint(
-        1, len(self.decoder_vocab), (self.batch_size, current_tgt_len)
+        1, self.decoder_vocab_size, (self.batch_size, current_tgt_len)
     )
     # Ensure it starts with start token
-    current_tgt_seq[:, 0] = self.decoder_vocab.bos_pad_id
+    current_tgt_seq[:, 0] = self.decoder_pad_idx
 
     next_token_logits_multi = self.model.next_token_logits(
         current_tgt_seq, memory, memory_key_padding_mask
     )
     self.assertEqual(
         next_token_logits_multi.shape,
-        (self.batch_size, len(self.decoder_vocab)),
+        (self.batch_size, self.decoder_vocab_size),
     )
 
   def test_basic_autoregressive_decode_loop(self):
     batch_size = 1
     src = torch.randint(
-        batch_size, len(self.encoder_vocab), (batch_size, self.src_seq_len)
+        batch_size, self.encoder_vocab_size, (batch_size, self.src_seq_len)
     )
     memory, memory_key_padding_mask = self.model.encode(src)
 
     # Begin with the start (padding) token.
-    current_tgt_tokens = torch.LongTensor([[self.decoder_vocab.bos_pad_id]])
+    current_tgt_tokens = torch.LongTensor([[self.decoder_pad_idx]])
 
     max_decode_steps = 5
-    decoded_ids = [self.decoder_vocab.bos_pad_id]
+    decoded_ids = [self.decoder_pad_idx]
 
     for _ in range(max_decode_steps):
       # (1, num_decoder_tokens)
@@ -159,7 +160,7 @@ class ArchitectureTest(absltest.TestCase):
 
     self.assertGreater(len(decoded_ids), 1)
     self.assertTrue(
-        all(0 <= token_id < len(self.decoder_vocab) for token_id in decoded_ids)
+        all(0 <= token_id < self.decoder_vocab_size for token_id in decoded_ids)
     )
 
 
