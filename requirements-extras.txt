@@ -1,1 +1,1 @@
-# TODO(team): Fill in requirements for extras.
+transformers  # For T5Gemma model.

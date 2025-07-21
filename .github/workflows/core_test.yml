@@ -27,12 +27,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install wheel
           pip install pytest pytest-xdist
-      - name: Install package
+      - name: Install package and extras
         run: |
-          pip install -e .
+          pip install -e ".[extras]"
       - name: Print installed dependencies
         run: |
           pip freeze
       - name: Run tests
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           pytest -n auto regress_lm

@@ -106,21 +106,17 @@ class ModelTest(absltest.TestCase):
         max_num_objs=2,
         **self.architecture_kwargs
     )
-
     self.assertEqual(model.decode_len, 12)
 
     examples = [
-        core.Example(x="hello", y=[1.0, 2.0]),
-        core.Example(x="world", y=[0.0]),
+        core.ExampleInput(x="hello"),
+        core.ExampleInput(x="world"),
     ]
-
-    batch = model.convert_examples(examples)
+    batch = model.convert_inputs(examples)
 
     decoded_ids, output_floats = model.decode(batch, num_samples=1024)
-
     # Now 12 = 2 objectives * 6 tokens per objective.
     self.assertEqual(tuple(decoded_ids.shape), (2, 1024, 12))
-
     # Now 2 objectives for last axis.
     self.assertEqual(tuple(output_floats.shape), (2, 1024, 2))
 
