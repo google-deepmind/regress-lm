@@ -94,6 +94,14 @@ reg_lm.fine_tune(examples)
 samples = reg_lm.sample([core.ExampleInput(x='hi')], num_samples=128)[0]
 ```
 
+### Pretrained Third-Party Models
+[T5Gemma](https://developers.googleblog.com/en/t5gemma/) is supported:
+
+```python
+from regress_lm.models.pytorch import t5gemma_model
+model = t5gemma_model.T5GemmaModel('google/t5gemma-s-s-prefixlm')
+```
+
 ## Contributors and Citation
 The codebase was written by: Xingyou Song, Yash Akhauri, Dara Bahri, Michal
 Lukasik, Arissa Wongpanich, Adrian N. Reyes, and Bryan Lewandowski.

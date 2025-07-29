@@ -40,7 +40,7 @@ def default_y_to_str_fn(ys: float | Sequence[float], precision: int = 4) -> str:
   raise ValueError(f'Unsupported type: {type(ys)}')
 
 
-class T5GemmaForRegressLM(nn.Module, model_base.Model[Tensor]):
+class T5GemmaModel(nn.Module, model_base.Model[Tensor]):
   """Comment."""
 
   def __init__(

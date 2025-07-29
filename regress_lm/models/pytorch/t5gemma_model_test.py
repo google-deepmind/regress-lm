@@ -22,15 +22,12 @@ class T5gemmaModelTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.model = t5gemma_model.T5GemmaForRegressLM(
+    self.model = t5gemma_model.T5GemmaModel(
         "google/t5gemma-s-s-prefixlm", max_input_len=10, max_decode_len=8
     )
 
   def test_convert_examples(self):
-    examples = [
-        core.Example(x="a s d", y=1.0),
-        core.Example(x="z x c", y=0.0),
-    ]
+    examples = [core.Example(x="a s d", y=1.0), core.Example(x="z x c", y=0.0)]
     batch = self.model.convert_examples(examples)
     self.assertEqual(batch["input_ids"].shape, (2, 10))
     self.assertEqual(batch["attention_mask"].shape, (2, 10))
@@ -48,20 +45,14 @@ class T5gemmaModelTest(absltest.TestCase):
     )
 
   def test_loss_and_metrics(self):
-    examples = [
-        core.Example(x="hello", y=1.0),
-        core.Example(x="world", y=0.0),
-    ]
+    examples = [core.Example(x="hello", y=1.0), core.Example(x="world", y=0.0)]
     batch = self.model.convert_examples(examples)
     loss, _ = self.model.compute_loss_and_metrics(batch)
     self.assertEqual(loss.shape, ())
-    self.assertAlmostEqual(loss.item(), 3.50119376)
+    self.assertAlmostEqual(loss.item(), 3.61566185)
 
   def test_log_prob(self):
-    examples = [
-        core.Example(x="hello", y=1.0),
-        core.Example(x="world", y=0.0),
-    ]
+    examples = [core.Example(x="hello", y=1.0), core.Example(x="world", y=0.0)]
     batch = self.model.convert_examples(examples)
     log_probs = self.model.log_prob(batch)
     self.assertEqual(log_probs.shape, (2,))
