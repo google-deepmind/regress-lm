@@ -1,6 +1,11 @@
 # RegressLM: Easy Text-to-Text Regression
 [![Continuous Integration](https://github.com/google-deepmind/regress-lm/actions/workflows/core_test.yml/badge.svg)](https://github.com/google-deepmind/regress-lm/actions?query=branch%3Amain)
 
+  [**Google Research Blog**](https://research.google/blog/simulating-large-systems-with-regression-language-models/)
+| [**Usage**](#usage)
+| [**Extended Usage**](#extended_usage)
+| [**Citing**](#citing)
+
 ## Overview
 RegressLM is a library for text-to-text regression, applicable to any input
 string representation and allows pretraining and fine-tuning over multiple
@@ -14,7 +19,7 @@ regression tasks.
 </p>
 </figure>
 
-## Usage
+## Usage <a name="usage"></a>
 There are two main stages: **inference** and **pretraining** (optional).
 
 ## Inference
@@ -60,7 +65,7 @@ for _ in range(...):
   optimizer.step()
 ```
 
-## Boosting Performance and Extended Applications
+## Boosting Performance and Extended Applications <a name="extended_usage"></a>
 Below, we describe ways to improve performance and extended applications.
 
 ### Train Custom Vocabulary
@@ -102,7 +107,7 @@ from regress_lm.models.pytorch import t5gemma_model
 model = t5gemma_model.T5GemmaModel('google/t5gemma-s-s-prefixlm')
 ```
 
-## Contributors and Citation
+## Contributors and Citation <a name="citing"></a>
 The codebase was written by: Xingyou Song, Yash Akhauri, Dara Bahri, Michal
 Lukasik, Arissa Wongpanich, Adrian N. Reyes, and Bryan Lewandowski.
 
