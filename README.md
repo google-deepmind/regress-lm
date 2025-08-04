@@ -111,14 +111,22 @@ model = t5gemma_model.T5GemmaModel('google/t5gemma-s-s-prefixlm')
 The codebase was written by: Xingyou Song, Yash Akhauri, Dara Bahri, Michal
 Lukasik, Arissa Wongpanich, Adrian N. Reyes, and Bryan Lewandowski.
 
-If you find this project useful, please consider citing our work as follows:
+If you find this project useful, please consider citing our works:
 
 ```
-@article{akhauri2025performancepredictionlargesystems,
+@article{performance_prediction,
       title={Performance Prediction for Large Systems via Text-to-Text Regression},
       author={Yash Akhauri and Bryan Lewandowski and Cheng-Hsi Lin and Adrian N. Reyes and Grant C. Forbes and Arissa Wongpanich and Bangding Yang and Mohamed S. Abdelfattah and Sagi Perel and Xingyou Song},
       journal={arXiv preprint arXiv:2506.21718},
       year={2025}
+}
+
+@article{omnipred,
+      title={OmniPred: Language Models as Universal Regressors},
+      author={Xingyou Song and Oscar Li and Chansoo Lee and Bangding Yang and Daiyi Peng and Sagi Perel and Yutian Chen},
+      journal={Trans. Mach. Learn. Res.},
+      year={2024},
+      url={https://openreview.net/forum?id=t9c3pfrR1X},
 }
 ```
 
