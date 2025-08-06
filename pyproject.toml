@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "regress-lm"
+version = "0.0.0"
+description = "Library for text-to-text regression, applicable to any input string representation and allows pretraining and fine-tuning over multiple regression tasks."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "absl-py",
+    "numpy",
+    "ordered-set",
+    "gcsfs",
+    "tokenizers",
+    "sentencepiece",
+    "torch",
+    "transformers",  # for T5Gemma model.
+]

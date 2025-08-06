@@ -1,1 +1,0 @@
-transformers  # For T5Gemma model.
