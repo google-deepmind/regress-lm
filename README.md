@@ -2,6 +2,7 @@
 [![Continuous Integration](https://github.com/google-deepmind/regress-lm/actions/workflows/core_test.yml/badge.svg)](https://github.com/google-deepmind/regress-lm/actions?query=branch%3Amain)
 
   [**Google Research Blog**](https://research.google/blog/simulating-large-systems-with-regression-language-models/)
+| [**Setup**](#setup)
 | [**Usage**](#usage)
 | [**Extended Usage**](#extended_usage)
 | [**Citing**](#citing)
@@ -19,7 +20,7 @@ regression tasks.
 </p>
 </figure>
 
-## Setup
+## Setup <a name="setup"></a>
 Get started by installing the core libraries:
 
 ```
