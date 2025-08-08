@@ -33,11 +33,8 @@ class ModelTest(absltest.TestCase):
     self.decoder_vocab = vocabs.DecoderVocab(tokenizers.P10Tokenizer())
     self.architecture_kwargs = dict(
         d_model=16,
-        nhead=2,
         num_encoder_layers=1,
         num_decoder_layers=1,
-        dim_feedforward=64,
-        dropout=0.1,
     )
     self.model = pytorch_model.PyTorchModel(
         encoder_vocab=self.encoder_vocab,
@@ -46,7 +43,7 @@ class ModelTest(absltest.TestCase):
         **self.architecture_kwargs
     )
     self.optimizer = optim.Adafactor(
-        filter(lambda p: p.requires_grad, self.model.parameters()), lr=1.0
+        filter(lambda p: p.requires_grad, self.model.parameters()), lr=0.1
     )
 
   def test_convert(self):
@@ -72,12 +69,12 @@ class ModelTest(absltest.TestCase):
     )
     log_probs_before = self.model.log_prob(examples)
     self.assertEqual(log_probs_before.shape, (2,))
-    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -26.81, 1)
+    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -26.93, 1)
 
     # Update the model. Logprob should improve.
     pytorch_model._train_step(self.model, self.optimizer, examples)
     log_probs_after = self.model.log_prob(examples)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -23.71, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -18.11, 1)
 
   def test_decode(self):
     batch = self.model.convert_examples([core.Example(x="hello", y=2.123)])
@@ -91,12 +88,12 @@ class ModelTest(absltest.TestCase):
     self.assertAlmostEqual(output_floats[0, 0], -0.2398)
     self.assertAlmostEqual(output_floats[0, 1], -230200000.0)
 
-    self.assertAlmostEqual(np.median(output_floats), -0.0003233)
+    self.assertAlmostEqual(np.median(output_floats), -0.00031275)
 
     # After updating, the median should get closer to target y.
     pytorch_model._train_step(self.model, self.optimizer, batch)
     _, output_floats = self.model.decode(batch, num_samples=128)
-    self.assertAlmostEqual(np.median(output_floats), 2.322)
+    self.assertAlmostEqual(np.median(output_floats), 2.331)
 
   def test_multiobjective(self):
     model = pytorch_model.PyTorchModel(

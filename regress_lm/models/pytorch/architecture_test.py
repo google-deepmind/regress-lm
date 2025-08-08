@@ -41,11 +41,8 @@ class ArchitectureTest(absltest.TestCase):
         max_encoder_len=self.max_encoder_len,
         max_decoder_len=self.max_decoder_len,
         d_model=self.d_model,
-        nhead=2,
         num_encoder_layers=1,
         num_decoder_layers=1,
-        dim_feedforward=16,
-        dropout=0.1,
     )
 
     # Dummy data parameters

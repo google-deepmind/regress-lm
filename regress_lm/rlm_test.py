@@ -23,10 +23,8 @@ class RlmTest(absltest.TestCase):
     reg_lm = rlm.RegressLM.from_default(
         max_input_len=128,
         d_model=32,
-        nhead=1,
         num_encoder_layers=1,
         num_decoder_layers=1,
-        dim_feedforward=32,
     )
     examples = [core.Example(x='hello', y=0.3), core.Example(x='world', y=0.7)]
     reg_lm.fine_tune(examples, max_epochs=2)

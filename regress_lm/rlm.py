@@ -51,11 +51,10 @@ class RegressLM:
         max_num_objs=kwargs.get("max_num_objs", 1),
         learning_rate=kwargs.get("learning_rate", 1e-4),
         d_model=kwargs.get("d_model", 512),
-        nhead=kwargs.get("nhead", 8),
         num_encoder_layers=kwargs.get("num_encoder_layers", 2),
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
-        dim_feedforward=kwargs.get("dim_feedforward", 2048),
-        dropout=kwargs.get("dropout", 0.0),
+        encoder_type=kwargs.get("encoder_type", "vanilla"),
+        additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
     )
 
     fine_tuner = pytorch_model.PyTorchFineTuner(model)
