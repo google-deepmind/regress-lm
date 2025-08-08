@@ -18,6 +18,7 @@
 import abc
 import copy
 from typing import Literal
+import mamba_ssm
 
 import torch
 from torch import nn
@@ -238,8 +239,38 @@ class VanillaEncoder(BaseEncoder):
     return output
 
 
+class MambaEncoder(BaseEncoder):
+  """Encoder built from a stack of Mamba blocks."""
+
+  def __init__(self, d_model: int, num_layers: int, **mamba_kwargs):
+    super().__init__()
+
+    self.layers = nn.ModuleList([
+        nn.Sequential(
+            nn.LayerNorm(d_model),
+            mamba_ssm.Mamba(d_model=d_model, **mamba_kwargs),
+        )
+        for _ in range(num_layers)
+    ])
+    # Add a final norm, which is common practice
+    self.norm = nn.LayerNorm(d_model)
+
+  def forward(
+      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+  ) -> torch.Tensor:
+    output = src
+    for layer in self.layers:
+      output = layer(output) + output  # Residual connection
+
+    # Manually apply padding mask
+    if src_key_padding_mask is not None:
+      output = output.masked_fill(src_key_padding_mask.unsqueeze(-1), 0.0)
+
+    return self.norm(output)
+
+
 def get_encoder(
-    encoder_type: Literal["vanilla"],
+    encoder_type: Literal["vanilla", "mamba"],
     d_model: int,
     num_layers: int,
     max_encoder_len: int,
@@ -252,6 +283,12 @@ def get_encoder(
         d_model=d_model,
         num_layers=num_layers,
         max_len=max_encoder_len,
+        **encoder_kwargs,
+    )
+  elif encoder_type == "mamba":
+    return MambaEncoder(
+        d_model=d_model,
+        num_layers=num_layers,
         **encoder_kwargs,
     )
 
