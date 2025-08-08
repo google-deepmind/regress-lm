@@ -19,6 +19,19 @@ regression tasks.
 </p>
 </figure>
 
+## Setup
+Get started by installing the core libraries:
+
+```
+pip install -e .
+```
+
+To run the T5Gemma model, install additional libraries:
+
+```
+pip install ".[extras]"
+```
+
 ## Usage <a name="usage"></a>
 There are two main stages: **inference** and **pretraining** (optional).
 

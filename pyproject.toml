@@ -16,5 +16,9 @@ dependencies = [
     "tokenizers",
     "sentencepiece",
     "torch",
+]
+
+[project.optional-dependencies]
+extras = [
     "transformers",  # for T5Gemma model.
 ]
