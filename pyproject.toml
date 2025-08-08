@@ -21,4 +21,10 @@ dependencies = [
 [project.optional-dependencies]
 extras = [
     "transformers",  # for T5Gemma model.
+    "mamba-ssm[causal-conv1d]",  # for Mamba SSM model.
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["regress_lm*"]
+exclude = []
