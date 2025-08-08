@@ -19,6 +19,11 @@ import abc
 import copy
 from typing import Literal
 
+try:
+  import mamba_ssm
+except ImportError:
+  mamba_ssm = None
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -121,16 +126,13 @@ class _VanillaTransformerEncoderLayer(nn.Module):
     self.v_proj = nn.Linear(d_model, d_model)
     self.out_proj = nn.Linear(d_model, d_model)
 
-    # LayerNorms
     self.norm1 = nn.LayerNorm(d_model)
     self.norm2 = nn.LayerNorm(d_model)
 
-    # Dropouts
     self.dropout1 = nn.Dropout(dropout)
     self.dropout2 = nn.Dropout(dropout)
     self.attn_dropout_p = dropout  # For F.scaled_dot_product_attention
 
-    # Feed-forward network
     self.linear1 = nn.Linear(d_model, dim_feedforward)
     self.activation = nn.ReLU()
     self.ff_dropout = nn.Dropout(dropout)
@@ -157,13 +159,11 @@ class _VanillaTransformerEncoderLayer(nn.Module):
     cos, sin = rotary_pos_emb(q)
     q, k = _apply_rotary_pos_emb(q, k, cos, sin)
 
-    # Prepare attention mask
     final_attn_mask = (
         key_padding_mask.view(B, 1, 1, L)
         if key_padding_mask is not None
         else None
     )
-
     attn_output = F.scaled_dot_product_attention(
         q,
         k,
@@ -192,8 +192,7 @@ class _VanillaTransformerEncoderLayer(nn.Module):
     x = x + self.dropout1(
         self._sa_block(self.norm1(x), rotary_pos_emb, src_key_padding_mask)
     )
-    x = x + self.dropout2(self._ff_block(self.norm2(x)))
-    return x
+    return x + self.dropout2(self._ff_block(self.norm2(x)))
 
 
 class VanillaEncoder(BaseEncoder):
@@ -213,16 +212,14 @@ class VanillaEncoder(BaseEncoder):
         d_model // nhead, max_len=max_len
     )
 
-    encoder_layer = _VanillaTransformerEncoderLayer(
+    layer = _VanillaTransformerEncoderLayer(
         d_model, expand * d_model, nhead, dropout
     )
-    encoder_norm = nn.LayerNorm(d_model)
-
     self.layers = nn.ModuleList(
-        [copy.deepcopy(encoder_layer) for _ in range(num_layers)]
+        [copy.deepcopy(layer) for _ in range(num_layers)]
     )
     self.num_layers = num_layers
-    self.norm = encoder_norm
+    self.norm = nn.LayerNorm(d_model)
 
   def forward(
       self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
@@ -233,13 +230,39 @@ class VanillaEncoder(BaseEncoder):
       output = mod(
           output, self.rotary_pos_emb, src_key_padding_mask=src_key_padding_mask
       )
-    if self.norm is not None:
-      output = self.norm(output)
-    return output
+    return self.norm(output)
+
+
+class MambaEncoder(BaseEncoder):
+  """Encoder built from a stack of Mamba blocks."""
+
+  def __init__(self, d_model: int, num_layers: int, **mamba_kwargs):
+    super().__init__()
+
+    self.layers = nn.ModuleList([
+        nn.Sequential(
+            nn.LayerNorm(d_model),
+            mamba_ssm.Mamba(d_model=d_model, **mamba_kwargs),  # pytype: disable=attribute-error
+        )
+        for _ in range(num_layers)
+    ])
+    self.norm = nn.LayerNorm(d_model)
+
+  def forward(
+      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+  ) -> torch.Tensor:
+    output = src
+    for layer in self.layers:
+      output = layer(output) + output  # Residual connection
+
+    # Manually apply padding mask
+    if src_key_padding_mask is not None:
+      output = output.masked_fill(src_key_padding_mask.unsqueeze(-1), 0.0)
+    return self.norm(output)
 
 
 def get_encoder(
-    encoder_type: Literal["vanilla"],
+    encoder_type: Literal["vanilla", "mamba"],
     d_model: int,
     num_layers: int,
     max_encoder_len: int,
@@ -253,6 +276,10 @@ def get_encoder(
         num_layers=num_layers,
         max_len=max_encoder_len,
         **encoder_kwargs,
+    )
+  elif encoder_type == "mamba":
+    return MambaEncoder(
+        d_model=d_model, num_layers=num_layers, **encoder_kwargs
     )
 
   else:
