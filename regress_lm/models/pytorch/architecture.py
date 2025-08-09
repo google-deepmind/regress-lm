@@ -105,7 +105,6 @@ class EncoderDecoder(nn.Module):
     )
 
     with nn.attention.sdpa_kernel(SPD_BACKENDS):  # Flash attention
-      # Encode with RoPE encoder
       memory = self.encoder(
           self.src_tok_emb(src),
           src_key_padding_mask=src_padding_mask,
