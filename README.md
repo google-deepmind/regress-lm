@@ -121,6 +121,14 @@ from regress_lm.models.pytorch import t5gemma_model
 model = t5gemma_model.T5GemmaModel('google/t5gemma-s-s-prefixlm')
 ```
 
+### Long-Context
+To support 100K+ input token lengths, alternative encoders (e.g.
+[`mamba-ssm`](https://github.com/state-spaces/mamba)) are supported:
+
+```python
+model = PyTorchModel(encoder_type='mamba', additional_encoder_kwargs={'d_state': 128})
+```
+
 ## Contributors and Citation <a name="citing"></a>
 The codebase was written by: Xingyou Song, Yash Akhauri, Dara Bahri, Michal
 Lukasik, Arissa Wongpanich, Adrian N. Reyes, and Bryan Lewandowski.
