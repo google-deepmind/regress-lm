@@ -19,6 +19,31 @@ from absl.testing import absltest
 from absl.testing import parameterized
 
 
+class MambaEncoderTest(absltest.TestCase):
+
+  def setUp(self):
+    """Set up a small, deterministic MambaEncoder for all tests."""
+    super().setUp()
+    self.d_model = 16
+    self.encoder = encoders.MambaEncoder(
+        d_model=self.d_model, num_layers=2, headdim=16
+    )
+
+  def test_forward_shape(self):
+    """Tests that the encoder output has the correct shape for unpadded input."""
+    batch_size = 4
+    seq_len = 50
+    # Input tensor (simulating embedded tokens)
+    src_emb = torch.randn(batch_size, seq_len, self.d_model)
+
+    # Forward pass without any padding mask
+    with torch.no_grad():
+      output = self.encoder(src_emb, src_key_padding_mask=None)
+
+    # Assert that the output shape is identical to the input shape
+    self.assertEqual(output.shape, (batch_size, seq_len, self.d_model))
+
+
 class PerformerEncoderTest(parameterized.TestCase):
 
   @parameterized.parameters(("softmax",), ("relu",))
