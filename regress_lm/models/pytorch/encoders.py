@@ -244,7 +244,7 @@ class MambaEncoder(BaseEncoder):
     self.layers = nn.ModuleList([
         nn.Sequential(
             nn.LayerNorm(d_model),
-            mamba_ssm.Mamba(d_model=d_model, **mamba_kwargs),  # pytype: disable=attribute-error
+            mamba_ssm.Mamba2(d_model=d_model, **mamba_kwargs),  # pytype: disable=attribute-error
         )
         for _ in range(num_layers)
     ])
