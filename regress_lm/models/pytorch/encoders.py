@@ -14,13 +14,15 @@
 
 """Different encoder types."""
 
-# pylint:disable=g-import-not-at-top
+# pylint: disable=g-import-not-at-top
 import abc
 import copy
-from typing import Literal
+import functools
+import math
+from typing import Callable, Literal
 
 try:
-  import mamba_ssm
+  import mamba_ssm  # pytype: disable=import-error
 except ImportError:
   mamba_ssm = None
 
@@ -261,8 +263,274 @@ class MambaEncoder(BaseEncoder):
     return self.norm(output)
 
 
+def _sample_orthogonal_q(
+    cols: int, device: torch.device | None = None
+) -> torch.Tensor:
+  unstructured_block = torch.randn((cols, cols), device=device)
+  q, _ = torch.linalg.qr(unstructured_block.cpu(), mode="reduced")
+  return q.to(device).t()
+
+
+def _gaussian_orthogonal_random_matrix(
+    nb_rows: int,
+    nb_columns: int,
+    sqrt_scaling: bool = False,
+    device: torch.device | None = None,
+) -> torch.Tensor:
+  """Creates a gaussian orthogonal random matrix."""
+  nb_full_blocks = int(nb_rows / nb_columns)
+  block_list = []
+  for _ in range(nb_full_blocks):
+    q = _sample_orthogonal_q(nb_columns, device=device)
+    block_list.append(q)
+  remaining_rows = nb_rows - nb_full_blocks * nb_columns
+  if remaining_rows > 0:
+    q = _sample_orthogonal_q(nb_columns, device=device)
+    block_list.append(q[:remaining_rows])
+  final_matrix = torch.cat(block_list)
+
+  if sqrt_scaling:
+    multiplier = math.sqrt(float(nb_columns))
+    multiplier = multiplier * torch.ones((nb_rows,), device=device)
+  else:
+    multiplier = torch.randn((nb_rows, nb_columns), device=device).norm(dim=1)
+
+  return torch.diag(multiplier) @ final_matrix
+
+
+def _generic_kernel_transformation(
+    data: torch.Tensor,
+    is_query: bool,
+    projection_matrix: torch.Tensor | None,
+    activation_fn: Callable[[torch.Tensor], torch.Tensor],
+    numerical_stabilizer: float = 1e-3,
+) -> torch.Tensor:
+  """Computes features based on an activation function (e.g., ReLU)."""
+  del is_query
+  if projection_matrix is None:
+    return activation_fn(data) + numerical_stabilizer
+
+  ratio = 1.0 / math.sqrt(projection_matrix.shape[0])
+  data_dash = torch.einsum("...hd,md->...hm", data, projection_matrix)
+  return activation_fn(ratio * data_dash) + numerical_stabilizer
+
+
+def _exp_softmax_kernel_transformation(
+    data: torch.Tensor,
+    is_query: bool,
+    projection_matrix: torch.Tensor,
+    numerical_stabilizer: float = 1e-6,
+) -> torch.Tensor:
+  """Computes random features for the softmax kernel using FAVOR+ mechanism."""
+  data_normalizer = 1.0 / (data.shape[-1] ** 0.25)
+  ratio = 1.0 / math.sqrt(projection_matrix.shape[0])
+  data_dash = torch.einsum(
+      "...hd,md->...hm", data_normalizer * data, projection_matrix
+  )
+
+  diag_data = torch.sum(data**2, dim=-1)
+  diag_data = (diag_data / 2.0) * (data_normalizer**2)
+  diag_data = diag_data.unsqueeze(dim=-1)
+
+  if is_query:
+    # For queries, normalization is applied per-token
+    stab = torch.amax(data_dash, dim=-1, keepdim=True).detach()
+  else:
+    # For keys, normalization is applied across all tokens
+    stab = torch.amax(data_dash, dim=(-2, -1), keepdim=True).detach()
+
+  return ratio * (
+      torch.exp(data_dash - stab - diag_data) + numerical_stabilizer
+  )
+
+
+def _favor_numerator(
+    qs: torch.Tensor, ks: torch.Tensor, vs: torch.Tensor
+) -> torch.Tensor:
+  """Computes not-normalized FAVOR+ attention numerator: Q'(K'T V)."""
+  kvs = torch.einsum("blhm,blhd->bhmd", ks, vs)
+  return torch.einsum("blhm,bhmd->blhd", qs, kvs)
+
+
+def _favor_denominator(qs: torch.Tensor, ks: torch.Tensor) -> torch.Tensor:
+  """Computes FAVOR+ attention denominator: Q'(K'T 1)."""
+  ks_sum = torch.sum(ks, dim=1)  # Sum over the length dimension
+  return torch.einsum("blhm,bhm->blh", qs, ks_sum)
+
+
+def _favor_attention(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    kernel_fn: Callable[
+        [torch.Tensor, bool, torch.Tensor | None], torch.Tensor
+    ],
+    projection_matrix: torch.Tensor,
+    inputs_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+  """Computes bidirectional (noncausal) normalized FAVOR+ attention."""
+  query_prime = kernel_fn(query, True, projection_matrix)
+  key_prime = kernel_fn(key, False, projection_matrix)
+
+  if inputs_mask is not None:  # (B, L) -> (B, L, H, M) for key_prime
+    key_prime = key_prime.masked_fill(~inputs_mask[:, :, None, None], 0.0)
+
+  # Compute numerator and denominator
+  numerator = _favor_numerator(query_prime, key_prime, value)
+  denominator = _favor_denominator(query_prime, key_prime)
+  denominator = denominator.unsqueeze(-1) + 1e-6
+  return numerator / denominator
+
+
+class _PerformerEncoderLayer(nn.Module):
+  """A Transformer Encoder Layer using the FAVOR+ attention mechanism."""
+
+  def __init__(
+      self,
+      d_model: int,
+      nhead: int,
+      dim_feedforward: int,
+      kernel_name: Literal["softmax", "relu"],
+      num_features: int | None,
+      dropout: float,
+  ):
+    super().__init__()
+    self.d_model = d_model
+    self.nhead = nhead
+    self.head_dim = d_model // nhead
+    if self.head_dim * nhead != self.d_model:
+      raise ValueError("d_model must be divisible by nhead")
+
+    if num_features is None:
+      num_features = 2 * int(self.head_dim * math.log(self.head_dim))
+    self.num_features = num_features
+
+    if kernel_name == "softmax":
+      self.kernel_fn = _exp_softmax_kernel_transformation
+    elif kernel_name == "relu":
+      self.kernel_fn = functools.partial(
+          _generic_kernel_transformation, activation_fn=F.relu
+      )
+    else:
+      raise ValueError(f"Unknown kernel transformation: {kernel_name}")
+
+    # Create and register the random projection matrix
+    projection_matrix = _gaussian_orthogonal_random_matrix(
+        self.num_features,
+        self.head_dim,
+        sqrt_scaling=(kernel_name == "softmax"),
+    )
+    self.register_buffer("projection_matrix", projection_matrix)
+
+    self.q_proj = nn.Linear(d_model, d_model)
+    self.k_proj = nn.Linear(d_model, d_model)
+    self.v_proj = nn.Linear(d_model, d_model)
+    self.out_proj = nn.Linear(d_model, d_model)
+
+    self.norm1 = nn.LayerNorm(d_model)
+    self.norm2 = nn.LayerNorm(d_model)
+    self.dropout1 = nn.Dropout(dropout)
+    self.dropout2 = nn.Dropout(dropout)
+
+    self.linear1 = nn.Linear(d_model, dim_feedforward)
+    self.activation = nn.ReLU()
+    self.ff_dropout = nn.Dropout(dropout)
+    self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+  @torch.no_grad()
+  def redraw_projection_matrix(
+      self, device: torch.device | None = None
+  ) -> None:
+    """Redraws the random projection matrix for FAVOR+ attention."""
+    device = device if device is not None else self.projection_matrix.device
+    new_projection_matrix = _gaussian_orthogonal_random_matrix(
+        self.num_features, self.head_dim, device=device
+    )
+    self.projection_matrix.copy_(new_projection_matrix)
+    del new_projection_matrix
+
+  def _ff_block(self, x: torch.Tensor) -> torch.Tensor:
+    return self.linear2(self.ff_dropout(self.activation(self.linear1(x))))
+
+  def forward(
+      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+  ) -> torch.Tensor:
+    x = src
+    x_norm = self.norm1(x)
+
+    q = self.q_proj(x_norm)
+    k = self.k_proj(x_norm)
+    v = self.v_proj(x_norm)
+
+    # Reshape for multi-head: (B, L, D) -> (B, L, H, D_h)
+    q = q.view(-1, x.shape[1], self.nhead, self.head_dim)
+    k = k.view(-1, x.shape[1], self.nhead, self.head_dim)
+    v = v.view(-1, x.shape[1], self.nhead, self.head_dim)
+
+    # Create mask for favor_attention (True for real tokens)
+    mask = ~src_key_padding_mask if src_key_padding_mask is not None else None
+    attn_output = _favor_attention(
+        q,
+        k,
+        v,
+        kernel_fn=self.kernel_fn,
+        projection_matrix=self.projection_matrix,
+        inputs_mask=mask,
+    )
+    attn_output = attn_output.contiguous().view(-1, x.shape[1], self.d_model)
+    attn_output = self.out_proj(attn_output)
+
+    x = x + self.dropout1(attn_output)
+    return x + self.dropout2(self._ff_block(self.norm2(x)))
+
+
+class PerformerEncoder(BaseEncoder):
+  """Encoder built from our custom PerformerEncoderLayer."""
+
+  def __init__(
+      self,
+      d_model: int,
+      num_layers: int,
+      kernel_name: Literal["softmax", "relu"] = "relu",
+      num_features: int | None = None,
+      redraw_interval: int | None = None,
+      nhead: int = 8,
+      dropout: float = 0.0,
+  ):
+    super().__init__()
+    layer = _PerformerEncoderLayer(
+        d_model,
+        nhead,
+        dim_feedforward=4 * d_model,
+        kernel_name=kernel_name,
+        num_features=num_features,
+        dropout=dropout,
+    )
+    self.layers = nn.ModuleList(
+        [copy.deepcopy(layer) for _ in range(num_layers)]
+    )
+    self.redraw_interval = redraw_interval
+    self.register_buffer("training_calls", torch.tensor(0))
+    self.norm = nn.LayerNorm(d_model)
+
+  def forward(
+      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+  ) -> torch.Tensor:
+
+    if self.training and self.redraw_interval is not None:
+      self.training_calls += 1
+      if self.training_calls.item() % self.redraw_interval == 0:
+        for layer in self.layers:
+          layer.redraw_projection_matrix(src.device)
+
+    output = src
+    for layer in self.layers:
+      output = layer(output, src_key_padding_mask)
+    return self.norm(output)
+
+
 def get_encoder(
-    encoder_type: Literal["vanilla", "mamba"],
+    encoder_type: Literal["vanilla", "mamba", "performer"],
     d_model: int,
     num_layers: int,
     max_encoder_len: int,
@@ -279,6 +547,10 @@ def get_encoder(
     )
   elif encoder_type == "mamba":
     return MambaEncoder(
+        d_model=d_model, num_layers=num_layers, **encoder_kwargs
+    )
+  elif encoder_type == "performer":
+    return PerformerEncoder(
         d_model=d_model, num_layers=num_layers, **encoder_kwargs
     )
 

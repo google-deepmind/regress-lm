@@ -123,10 +123,11 @@ model = t5gemma_model.T5GemmaModel('google/t5gemma-s-s-prefixlm')
 
 ### Long-Context
 To support 100K+ input token lengths, alternative encoders (e.g.
-[`mamba-ssm`](https://github.com/state-spaces/mamba)) are supported:
+[`mamba-ssm`](https://github.com/state-spaces/mamba) and [Performer](https://research.google/blog/rethinking-attention-with-performers/)) are supported:
 
 ```python
 model = PyTorchModel(encoder_type='mamba', additional_encoder_kwargs={'d_state': 128})
+model = PyTorchModel(encoder_type='performer', additional_encoder_kwargs={'num_features': 256})
 ```
 
 ## Contributors and Citation <a name="citing"></a>
