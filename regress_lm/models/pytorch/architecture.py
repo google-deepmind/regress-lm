@@ -77,7 +77,7 @@ class EncoderDecoder(nn.Module):
         **(additional_encoder_kwargs or {}),
     )
 
-    # We use a standard positional encoding and decoder.
+    # We use standard positional embeddings on decoder.
     self.decoder_positional_encoding = _PositionalEncoding(
         d_model, max_len=max_decoder_len, dropout=0.0
     )
@@ -100,27 +100,22 @@ class EncoderDecoder(nn.Module):
 
   def forward(self, src: torch.Tensor, tgt_input: torch.Tensor) -> torch.Tensor:
     src_padding_mask = src == self.encoder_pad_idx
-    tgt_causal_mask = self._generate_causal_mask(tgt_input.size(1)).to(
-        src.device
-    )
 
     with nn.attention.sdpa_kernel(SPD_BACKENDS):  # Flash attention
       memory = self.encoder(
           self.src_tok_emb(src),
           src_key_padding_mask=src_padding_mask,
       )
-
-      # Decode with standard decoder
       decoder_output = self.decoder(
           tgt=self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input)),
           memory=memory,
-          tgt_mask=tgt_causal_mask,
+          tgt_mask=self._generate_causal_mask(tgt_input.size(1)).to(src.device),
           memory_key_padding_mask=src_padding_mask,
       )
     return self.generator(decoder_output)
 
   def encode(self, src: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Encodes the source sequence using the RoPE encoder."""
+    """Encodes the source sequence."""
     src_padding_mask = src == self.encoder_pad_idx
     src_emb = self.src_tok_emb(src)
     with nn.attention.sdpa_kernel(SPD_BACKENDS):  # Flash attention

@@ -68,12 +68,20 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     )
 
   @property
+  def device(self) -> torch.device:
+    return next(self.parameters()).device
+
+  def to_device(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
+    return {k: v.to(self.device) for k, v in batch.items()}
+
+  @property
   def decode_len(self) -> int:
     return self.max_num_objs * self.decoder_vocab.num_tokens_per_obj
 
   def compute_loss_and_metrics(
       self, examples: dict[str, Tensor]
   ) -> tuple[Tensor, dict[str, Tensor]]:
+    examples = self.to_device(examples)
     metrics = {}
     logits = self.encoder_decoder.forward(
         examples['encoder_input'], examples['decoder_input']
@@ -108,8 +116,9 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
       temperature: float = 1.0,
   ) -> tuple[Tensor, np.ndarray]:
     self.encoder_decoder.eval()
+    inputs = self.to_device(inputs)
+
     encoder_input = inputs['encoder_input']  # (B, L_src)
-    device = encoder_input.device
     batch_size = encoder_input.shape[0]
     # memory: (B, L_src, D_model), memory_key_padding_mask: (B, L_src)
     memory, memory_key_padding_mask = self.encoder_decoder.encode(encoder_input)
@@ -134,14 +143,14 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
         (batch_size * num_samples, 1),
         self.decoder_vocab.bos_pad_id,
         dtype=torch.long,
-        device=device,
+        device=self.device,
     )
 
     # Store all generated token IDs for all sequences in the expanded batch
     generated_sequences_ids = torch.zeros(
         (batch_size * num_samples, self.decode_len),
         dtype=torch.long,
-        device=device,
+        device=self.device,
     )
 
     # Batched autoregressive decoding loop
@@ -186,6 +195,7 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
 
   def log_prob(self, examples: dict[str, Tensor]) -> Tensor:
     self.encoder_decoder.eval()
+    examples = self.to_device(examples)
     enc_input = examples['encoder_input']
     dec_input = examples['decoder_input']
     dec_target = examples['decoder_target']
@@ -289,10 +299,8 @@ class PyTorchFineTuner(model_base.FineTuner):
       batch_size: int | None = None,
       seed: int | None = None,
   ) -> None:
-    device = next(self.model.parameters()).device
     validation_examples = validation_examples or examples
     valid_batch = self.model.convert_examples(validation_examples)
-    valid_batch = {k: v.to(device) for k, v in valid_batch.items()}
 
     batch_size = batch_size or len(examples)
     train_tensors = self.model.convert_examples(examples)
@@ -316,7 +324,7 @@ class PyTorchFineTuner(model_base.FineTuner):
       for i in range(num_batches):
         inds = all_indices[i * batch_size : (i + 1) * batch_size]
         batch = {k: v[inds] for k, v in train_tensors.items()}
-        batch = {k: v.to(device) for k, v in batch.items()}
+        batch = self.model.to_device(batch)
         _train_step(self.model, self.optimizer, batch)
       state = self.model.state_dict()
 

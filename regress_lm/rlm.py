@@ -21,6 +21,7 @@ from regress_lm import tokenizers
 from regress_lm import vocabs
 from regress_lm.models import base as model_base
 from regress_lm.models.pytorch import model as pytorch_model
+import torch
 
 
 class RegressLM:
@@ -39,14 +40,14 @@ class RegressLM:
     self.fine_tuner.fine_tune(examples, validation_examples, **kwargs)
 
   @classmethod
-  def from_default(cls, **kwargs) -> "RegressLM":
+  def from_default(cls, device: str | None = None, **kwargs) -> "RegressLM":
     """Creates a RegressLM with default model and finetuner."""
-
-    encoder_vocab = vocabs.SentencePieceVocab.from_t5()
-    decoder_vocab = vocabs.DecoderVocab(tokenizers.P10Tokenizer())
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = pytorch_model.PyTorchModel(
-        encoder_vocab=encoder_vocab,
-        decoder_vocab=decoder_vocab,
+        encoder_vocab=kwargs.get("encoder_vocab")
+        or vocabs.SentencePieceVocab.from_t5(),
+        decoder_vocab=kwargs.get("decoder_vocab")
+        or vocabs.DecoderVocab(tokenizers.P10Tokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
         learning_rate=kwargs.get("learning_rate", 1e-4),
@@ -55,7 +56,7 @@ class RegressLM:
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
         encoder_type=kwargs.get("encoder_type", "vanilla"),
         additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
-    )
+    ).to(device)
 
     fine_tuner = pytorch_model.PyTorchFineTuner(model)
     return cls(model, fine_tuner)
