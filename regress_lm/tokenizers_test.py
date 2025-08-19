@@ -12,9 +12,63 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
+import ordered_set
 from regress_lm import tokenizers
 from absl.testing import absltest
 from absl.testing import parameterized
+
+
+class AddSpecialTokensTest(parameterized.TestCase):
+
+  SPECIAL = ['<INFEASIBLE>', '<NAN>', '<INF>', '<NINF>']
+  SIGNS = ['<+>', '<->']
+  DIGITS = [f'<{i}>' for i in range(10)]
+  EXPONENTS = ['<E-2>', '<E-1>', '<E0>', '<E1>', '<E2>']
+
+  @parameterized.parameters(
+      ('INFEASIBLE', 1, ['<INFEASIBLE>', '<INFEASIBLE>', '<INFEASIBLE>']),
+      (float('nan'), 1, ['<NAN>', '<NAN>', '<NAN>']),
+      (float('nan'), 3, ['<NAN>', '<NAN>', '<NAN>', '<NAN>', '<NAN>']),
+      (float('inf'), 2, ['<INF>', '<INF>', '<INF>', '<INF>']),
+      (float('-inf'), 3, ['<NINF>', '<NINF>', '<NINF>', '<NINF>', '<NINF>']),
+      (123.4, 4, ['<+>', '<1>', '<2>', '<3>', '<4>', '<E-1>']),
+  )
+  def test_tokenize(
+      self, f: float, num_digits: int, expected_tokens: list[str]
+  ):
+    base_tokenizer = tokenizers.P10Tokenizer(num_digits=num_digits)
+    tokenizer = tokenizers.AddSpecialTokens(base_tokenizer)
+    out_tokens = tokenizer.to_tokens(f)
+    self.assertEqual(out_tokens, expected_tokens)
+    f_prime = tokenizer.from_tokens(out_tokens)
+    if f_prime == 'INFEASIBLE':
+      self.assertEqual(f_prime, 'INFEASIBLE')
+    elif math.isnan(f):
+      self.assertTrue(math.isnan(f_prime))
+    else:
+      self.assertAlmostEqual(f_prime, f)
+
+  def test_all_tokens_used(self):
+    base_tokenizer = tokenizers.P10Tokenizer(exponent_range=2)
+    tokenizer = tokenizers.AddSpecialTokens(base_tokenizer)
+    out = tokenizer.all_tokens()
+
+    self.assertEqual(
+        list(out), self.SIGNS + self.DIGITS + self.EXPONENTS + self.SPECIAL
+    )
+
+  def test_possible_next_tokens(self):
+    base_tokenizer = tokenizers.P10Tokenizer(exponent_range=2)
+    tokenizer = tokenizers.AddSpecialTokens(base_tokenizer)
+
+    special_fp_tokens = ordered_set.OrderedSet(self.SPECIAL)
+    sign_tokens = ordered_set.OrderedSet(self.SIGNS)
+    expected_ind0 = special_fp_tokens.union(sign_tokens)
+    self.assertEqual(tokenizer.possible_next_tokens([]), expected_ind0)
+
+    expected_ind1 = ordered_set.OrderedSet(self.DIGITS)
+    self.assertEqual(tokenizer.possible_next_tokens(['<+>']), expected_ind1)
 
 
 class P10TokenizerTest(parameterized.TestCase):
@@ -93,6 +147,12 @@ class P10TokenizerTest(parameterized.TestCase):
     exponents = ['<E-2>', '<E-1>', '<E0>', '<E1>', '<E2>']
     self.assertEqual(list(out), signs + digits + exponents)
 
+  def test_invalid_num_digits(self):
+    with self.assertRaises(ValueError):
+      tokenizers.P10Tokenizer(num_digits=0)
+    with self.assertRaises(ValueError):
+      tokenizers.P10Tokenizer(num_digits=-1)
+
 
 class IEEEFloatTokenizerTest(parameterized.TestCase):
 
@@ -129,7 +189,6 @@ class IEEEFloatTokenizerTest(parameterized.TestCase):
     signs = ['<+>', '<->']
     digits = [f'<{i}>' for i in range(base)]
     self.assertEqual(list(out), signs + digits)
-
 
 if __name__ == '__main__':
   absltest.main()

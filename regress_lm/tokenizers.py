@@ -21,12 +21,38 @@ vocabulary will assign integer IDs.
 import abc
 import math
 import re
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, Union
 
 import numpy as np
 import ordered_set
 
+OrderedSet = ordered_set.OrderedSet
 DELIMITERS = ('<', '>')
+INFEASIBLE = 'INFEASIBLE'
+
+SpecialFPTokenValue = Union[str, float]
+SPECIAL_TOKENS: dict[str, SpecialFPTokenValue] = {
+    'INFEASIBLE': INFEASIBLE,
+    'NAN': float('nan'),
+    'INF': float('inf'),
+    'NINF': float('-inf'),
+}
+
+
+def _get_special_token_str(v: SpecialFPTokenValue) -> str:
+  if v == INFEASIBLE:
+    return INFEASIBLE
+  if math.isnan(v):
+    return 'NAN'
+  if math.isinf(v):
+    return 'INF' if v > 0 else 'NINF'
+  raise ValueError(f'Not a special float: {v}')
+
+
+def _is_special_fp_token(v: SpecialFPTokenValue) -> bool:
+  if isinstance(v, float) and math.isnan(v):
+    return True
+  return v in SPECIAL_TOKENS.values()
 
 
 def _to_token(s: str | int) -> str:
@@ -43,6 +69,7 @@ def _from_token(token: str) -> str | int:
   return m.group(1)
 
 
+_SPECIAL_TOKEN_SET = OrderedSet([_to_token(s) for s in SPECIAL_TOKENS])
 ObjectT = TypeVar('ObjectT')
 
 
@@ -54,16 +81,13 @@ class DecoderTokenizer(abc.ABC, Generic[ObjectT]):
   def num_tokens_per_obj(self) -> int:
     """Number of tokens used to represent each float."""
 
-  def all_tokens(self) -> ordered_set.OrderedSet[str]:
+  @abc.abstractmethod
+  def all_tokens(self) -> OrderedSet[str]:
     """Returns ordered set of all tokens used."""
-    out = []
-    for i in range(self.num_tokens_per_obj):
-      out.extend(self.tokens_at_index(i))
-    return ordered_set.OrderedSet(out)
 
   @abc.abstractmethod
-  def tokens_at_index(self, index: int) -> ordered_set.OrderedSet[str]:
-    """Returns ordered set of tokens possible at position `index`."""
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    """Returns ordered set of tokens possible for the next step."""
 
   @abc.abstractmethod
   def to_tokens(self, obj: ObjectT, /) -> list[str]:
@@ -72,6 +96,44 @@ class DecoderTokenizer(abc.ABC, Generic[ObjectT]):
   @abc.abstractmethod
   def from_tokens(self, tokens: list[str], /) -> ObjectT:
     """Converts a string of tokens to an object."""
+
+
+class AddSpecialTokens(DecoderTokenizer[SpecialFPTokenValue]):
+  """Wraps a DecoderTokenizer to add special float tokens."""
+
+  def __init__(self, tokenizer: DecoderTokenizer[SpecialFPTokenValue]):
+    self._tokenizer = tokenizer
+
+  @property
+  def num_tokens_per_obj(self) -> int:
+    return self._tokenizer.num_tokens_per_obj
+
+  def all_tokens(self) -> OrderedSet[str]:
+    return self._tokenizer.all_tokens().union(_SPECIAL_TOKEN_SET)
+
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    index = len(prev_tokens) % self.num_tokens_per_obj
+    if index == 0:
+      return _SPECIAL_TOKEN_SET.union(
+          self._tokenizer.possible_next_tokens(prev_tokens)
+      )
+    zeroth_token = prev_tokens[0]
+    return (
+        OrderedSet([zeroth_token])
+        if _from_token(zeroth_token) in SPECIAL_TOKENS
+        else self._tokenizer.possible_next_tokens(prev_tokens)
+    )
+
+  def to_tokens(self, obj: SpecialFPTokenValue, /) -> list[str]:
+    if _is_special_fp_token(obj):
+      return [_to_token(_get_special_token_str(obj))] * self.num_tokens_per_obj
+    return self._tokenizer.to_tokens(obj)
+
+  def from_tokens(self, tokens: list[str], /) -> SpecialFPTokenValue:
+    primitive = _from_token(tokens[0])
+    if primitive in SPECIAL_TOKENS:
+      return SPECIAL_TOKENS[primitive]
+    return self._tokenizer.from_tokens(tokens)
 
 
 class P10Tokenizer(DecoderTokenizer[float]):
@@ -95,14 +157,25 @@ class P10Tokenizer(DecoderTokenizer[float]):
   """
 
   def __init__(self, num_digits: int = 4, exponent_range: int = 10):
+    if num_digits <= 0:
+      raise ValueError('num_digits must be positive.')
     self.num_digits = num_digits
     self.exponent_range = exponent_range
 
+  def all_tokens(self) -> OrderedSet[str]:
+    tokens = [_to_token(s) for s in ['+', '-'] + list(range(10))]
+    exps = [
+        f'E{i}' for i in range(-self.exponent_range, self.exponent_range + 1)
+    ]
+    tokens.extend([_to_token(s) for s in exps])
+    return OrderedSet(tokens)
+
   @property
   def num_tokens_per_obj(self) -> int:
-    return 2 + self.num_digits
+    return 2 + self.num_digits  # sign + mantissa
 
-  def tokens_at_index(self, index: int) -> ordered_set.OrderedSet[str]:
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    index = len(prev_tokens) % self.num_tokens_per_obj
     if index < 0 or index >= self.num_tokens_per_obj:
       raise ValueError(f'Index {index} out of bounds.')
 
@@ -115,7 +188,7 @@ class P10Tokenizer(DecoderTokenizer[float]):
       tokens = [_to_token(s) for s in exps]
     else:  # middle (digit)
       tokens = [_to_token(s) for s in range(0, 10)]
-    return ordered_set.OrderedSet(tokens)
+    return OrderedSet(tokens)
 
   @property
   def _max_abs_val(self) -> float:
@@ -161,7 +234,6 @@ class P10Tokenizer(DecoderTokenizer[float]):
 
   def from_tokens(self, tokens: list[str], /) -> float:
     primitives = [_from_token(t) for t in tokens]
-
     sign = -1 if primitives[0] == '-' else 1
     mantissa = int(''.join(map(str, primitives[1:-1])))
     exp = int(''.join(primitives[-1]).lstrip('E'))
@@ -198,11 +270,17 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
     self.num_exponent_digits = num_exponent_digits
     self.num_mantissa_digits = num_mantissa_digits
 
+  def all_tokens(self) -> OrderedSet[str]:
+    return OrderedSet(
+        [_to_token(s) for s in ['+', '-'] + list(range(self.base))]
+    )
+
   @property
   def num_tokens_per_obj(self) -> int:
     return 2 + self.num_exponent_digits + self.num_mantissa_digits
 
-  def tokens_at_index(self, index: int) -> ordered_set.OrderedSet[str]:
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    index = len(prev_tokens) % self.num_tokens_per_obj
     if index < 0 or index >= self.num_tokens_per_obj:
       raise ValueError(f'Index {index} out of bounds.')
 
@@ -210,19 +288,17 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
       tokens = [_to_token(s) for s in ['+', '-']]
     else:  # middle (digit)
       tokens = [_to_token(s) for s in range(self.base)]
-    return ordered_set.OrderedSet(tokens)
+    return OrderedSet(tokens)
 
   def to_tokens(self, f: float, /) -> list[str]:
     sign = '+' if f >= 0 else '-'
     abs_f = abs(f)
     exponent = math.floor(np.log(abs_f) / np.log(self.base)) if abs_f > 0 else 0
-
     exponent_sign = '+' if exponent >= 0 else '-'
     abs_exponent = abs(exponent)
 
     e = np.base_repr(abs_exponent, base=self.base)
     if len(e) > self.num_exponent_digits and exponent_sign == '+':
-      # TODO: Should we round or add 'inf' token?
       raise ValueError(f'Overflow: Exponent {abs_exponent} too large.')
     if len(e) > self.num_exponent_digits and exponent_sign == '-':
       # Underflow.
@@ -246,9 +322,7 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
 
   def from_tokens(self, tokens: list[str], /) -> float:
     primitives = [_from_token(t) for t in tokens]
-
     sign = -1 if primitives[0] == '-' else 1
-
     exponent_sign = -1 if primitives[1] == '-' else 1
 
     abs_exponent_str = ''.join(
