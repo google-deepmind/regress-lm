@@ -134,7 +134,7 @@ model = PyTorchModel(encoder_type='performer', additional_encoder_kwargs={'num_f
 The codebase was written by: Xingyou Song, Yash Akhauri, Dara Bahri, Michal
 Lukasik, Arissa Wongpanich, Adrian N. Reyes, and Bryan Lewandowski.
 
-If you find this project useful, please consider citing our works:
+If you find this project useful, please consider citing the relevant works:
 
 ```
 @article{performance_prediction,
@@ -150,6 +150,14 @@ If you find this project useful, please consider citing our works:
       journal={Trans. Mach. Learn. Res.},
       year={2024},
       url={https://openreview.net/forum?id=t9c3pfrR1X},
+}
+
+@article{decoding_regression,
+      title={Decoding-based Regression},
+      author={Xingyou Song and Dara Bahri},
+      journal={Trans. Mach. Learn. Res.},
+      year={2025},
+      url={https://openreview.net/forum?id=avUQ8jguxg},
 }
 ```
 
