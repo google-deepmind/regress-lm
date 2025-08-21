@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from regress_lm import tokenizers
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -129,6 +130,58 @@ class IEEEFloatTokenizerTest(parameterized.TestCase):
     signs = ['<+>', '<->']
     digits = [f'<{i}>' for i in range(base)]
     self.assertEqual(list(out), signs + digits)
+
+
+class AddSpecialValuesTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.base_tokenizer = tokenizers.P10Tokenizer(
+        num_digits=1, exponent_range=2
+    )
+    self.tokenizer = tokenizers.AddSpecialValues(self.base_tokenizer)
+
+  @parameterized.parameters(
+      ('INVALID', ['<INVALID>', '<INVALID>', '<INVALID>']),
+      (float('nan'), ['<NAN>', '<NAN>', '<NAN>']),
+      (float('inf'), ['<INF>', '<INF>', '<INF>']),
+      (float('-inf'), ['<NINF>', '<NINF>', '<NINF>']),
+      (100.0, ['<+>', '<1>', '<E2>']),
+  )
+  def test_tokenize(self, f: float, expected_tokens: list[str]):
+    out_tokens = self.tokenizer.to_tokens(f)
+    self.assertEqual(out_tokens, expected_tokens)
+    f_prime = self.tokenizer.from_tokens(out_tokens)
+    if f_prime == 'INVALID':
+      self.assertEqual(f_prime, 'INVALID')
+    elif math.isnan(f):
+      self.assertTrue(math.isnan(f_prime))
+    else:
+      self.assertAlmostEqual(f_prime, f)
+
+  def test_all_tokens_used(self):
+    self.assertEqual(
+        list(self.tokenizer.all_tokens()),
+        ['<+>', '<->']
+        + [f'<{i}>' for i in range(10)]
+        + ['<E-2>', '<E-1>', '<E0>', '<E1>', '<E2>']
+        + ['<INVALID>', '<NAN>', '<INF>', '<NINF>'],
+    )
+
+  def test_possible_next_tokens(self):
+    self.assertEqual(
+        self.tokenizer.possible_next_tokens([]),
+        ['<INVALID>', '<NAN>', '<INF>', '<NINF>'] + ['<+>', '<->'],
+    )
+
+    self.assertEqual(
+        self.tokenizer.possible_next_tokens(['<+>']),
+        [f'<{i}>' for i in range(10)],
+    )
+
+    self.assertEqual(
+        self.tokenizer.possible_next_tokens(['<INVALID>']), ['<INVALID>']
+    )
 
 
 if __name__ == '__main__':

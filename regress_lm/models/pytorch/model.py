@@ -14,6 +14,8 @@
 
 """PyTorch implementation of a RegressLM."""
 
+from concurrent import futures
+import functools
 import math
 from typing import Sequence
 import numpy as np
@@ -60,11 +62,6 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
         max_encoder_len=self.max_input_len,
         max_decoder_len=self.decode_len + 1,
         **architecture_kwargs,
-    )
-
-    # Pre-compute the constraint masks for the decoder.
-    self.register_buffer(
-        'decoder_constraint_masks', self._create_decoder_constraint_masks()
     )
 
   @property
@@ -154,6 +151,12 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     )
 
     # Batched autoregressive decoding loop
+    expanded_batch_size = batch_size * num_samples
+
+    def get_allowed_tokens(i: int, step_idx: int) -> list[int]:
+      prev_tokens = generated_sequences_ids[i, :step_idx].tolist()
+      return self.decoder_vocab.possible_next_token_ids(prev_tokens)
+
     for step_idx in range(self.decode_len):
       # Get logits for the next token for all (B * num_samples) sequences
       # Shape: (B*S, V)
@@ -161,9 +164,17 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
           current_tgt_ids, expanded_memory, expanded_memory_key_padding_mask
       )
 
-      # Apply constraints using the pre-computed mask
-      curr_mask = self.decoder_constraint_masks[step_idx, :]  # (V,)
-      curr_mask = curr_mask.unsqueeze(0)  # (1, V)
+      # Apply constraints using online computed mask
+      curr_mask = torch.zeros(
+          (expanded_batch_size, len(self.decoder_vocab)), device=self.device
+      )
+      parallel_fn = functools.partial(get_allowed_tokens, step_idx=step_idx)
+      with futures.ThreadPoolExecutor() as executor:
+        results = executor.map(parallel_fn, range(expanded_batch_size))
+
+      for i, allowed_inds in enumerate(results):
+        curr_mask[i, allowed_inds] = 1.0
+
       masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
 
       # Apply temperature sampling, 1 token for each of the B*S sequences
@@ -182,8 +193,8 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     )
 
     # Compute equivalent floats.
-    output_floats = np.zeros(
-        (batch_size, num_samples, self.max_num_objs), dtype=float
+    output_floats = np.empty(
+        (batch_size, num_samples, self.max_num_objs), dtype=object
     )
     for b in range(batch_size):
       for s_idx in range(num_samples):
@@ -248,14 +259,6 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     if len(token_ids) > self.max_input_len:
       return token_ids[: self.max_input_len]
     return token_ids + [encoder_pad_idx] * (self.max_input_len - len(token_ids))
-
-  def _create_decoder_constraint_masks(self) -> torch.Tensor:
-    vocab_size = len(self.decoder_vocab)
-    masks = np.zeros((self.decode_len, vocab_size), dtype=np.float32)
-    for step_idx in range(self.decode_len):
-      for allowed_token_id in self.decoder_vocab.token_ids_at_index(step_idx):
-        masks[step_idx, allowed_token_id] = 1.0
-    return torch.from_numpy(masks)
 
 
 def _detect_overfitting(losses: Sequence[float]) -> bool:

@@ -26,6 +26,7 @@ from typing import Generic, TypeVar
 import numpy as np
 import ordered_set
 
+OrderedSet = ordered_set.OrderedSet
 DELIMITERS = ('<', '>')
 
 
@@ -54,16 +55,13 @@ class DecoderTokenizer(abc.ABC, Generic[ObjectT]):
   def num_tokens_per_obj(self) -> int:
     """Number of tokens used to represent each float."""
 
-  def all_tokens(self) -> ordered_set.OrderedSet[str]:
+  @abc.abstractmethod
+  def all_tokens(self) -> OrderedSet[str]:
     """Returns ordered set of all tokens used."""
-    out = []
-    for i in range(self.num_tokens_per_obj):
-      out.extend(self.tokens_at_index(i))
-    return ordered_set.OrderedSet(out)
 
   @abc.abstractmethod
-  def tokens_at_index(self, index: int) -> ordered_set.OrderedSet[str]:
-    """Returns ordered set of tokens possible at position `index`."""
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    """Returns ordered set of tokens possible for the next step."""
 
   @abc.abstractmethod
   def to_tokens(self, obj: ObjectT, /) -> list[str]:
@@ -98,11 +96,20 @@ class P10Tokenizer(DecoderTokenizer[float]):
     self.num_digits = num_digits
     self.exponent_range = exponent_range
 
+  def all_tokens(self) -> OrderedSet[str]:
+    tokens = [_to_token(s) for s in ['+', '-'] + list(range(10))]
+    exps = [
+        f'E{i}' for i in range(-self.exponent_range, self.exponent_range + 1)
+    ]
+    tokens.extend([_to_token(s) for s in exps])
+    return OrderedSet(tokens)
+
   @property
   def num_tokens_per_obj(self) -> int:
     return 2 + self.num_digits
 
-  def tokens_at_index(self, index: int) -> ordered_set.OrderedSet[str]:
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    index = len(prev_tokens)
     if index < 0 or index >= self.num_tokens_per_obj:
       raise ValueError(f'Index {index} out of bounds.')
 
@@ -115,7 +122,7 @@ class P10Tokenizer(DecoderTokenizer[float]):
       tokens = [_to_token(s) for s in exps]
     else:  # middle (digit)
       tokens = [_to_token(s) for s in range(0, 10)]
-    return ordered_set.OrderedSet(tokens)
+    return OrderedSet(tokens)
 
   @property
   def _max_abs_val(self) -> float:
@@ -198,11 +205,16 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
     self.num_exponent_digits = num_exponent_digits
     self.num_mantissa_digits = num_mantissa_digits
 
+  def all_tokens(self) -> OrderedSet[str]:
+    tokens = ['+', '-'] + list(range(self.base))
+    return OrderedSet([_to_token(s) for s in tokens])
+
   @property
   def num_tokens_per_obj(self) -> int:
     return 2 + self.num_exponent_digits + self.num_mantissa_digits
 
-  def tokens_at_index(self, index: int) -> ordered_set.OrderedSet[str]:
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    index = len(prev_tokens)
     if index < 0 or index >= self.num_tokens_per_obj:
       raise ValueError(f'Index {index} out of bounds.')
 
@@ -210,7 +222,7 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
       tokens = [_to_token(s) for s in ['+', '-']]
     else:  # middle (digit)
       tokens = [_to_token(s) for s in range(self.base)]
-    return ordered_set.OrderedSet(tokens)
+    return OrderedSet(tokens)
 
   def to_tokens(self, f: float, /) -> list[str]:
     sign = '+' if f >= 0 else '-'
@@ -222,7 +234,6 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
 
     e = np.base_repr(abs_exponent, base=self.base)
     if len(e) > self.num_exponent_digits and exponent_sign == '+':
-      # TODO: Should we round or add 'inf' token?
       raise ValueError(f'Overflow: Exponent {abs_exponent} too large.')
     if len(e) > self.num_exponent_digits and exponent_sign == '-':
       # Underflow.
@@ -262,3 +273,59 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
     mantissa = mantissa_unscaled / self.base ** (self.num_mantissa_digits - 1)
 
     return sign * (self.base**exponent) * mantissa
+
+
+class AddSpecialValues(DecoderTokenizer[str | float]):
+  """Wraps a DecoderTokenizer to add special tokens."""
+
+  SPECIAL_VALUE_MAP = {
+      'INVALID': 'INVALID',
+      'NAN': float('nan'),
+      'INF': float('inf'),
+      'NINF': float('-inf'),
+  }
+
+  def __init__(self, tokenizer: DecoderTokenizer):
+    self._tokenizer = tokenizer
+    self._special_tokens = OrderedSet(
+        [_to_token(s) for s in self.SPECIAL_VALUE_MAP]
+    )
+
+  @property
+  def num_tokens_per_obj(self) -> int:
+    return self._tokenizer.num_tokens_per_obj
+
+  def all_tokens(self) -> OrderedSet[str]:
+    return self._tokenizer.all_tokens().union(self._special_tokens)
+
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    if not prev_tokens:  # At start, all special tokens are possible
+      return self._special_tokens.union(
+          self._tokenizer.possible_next_tokens(prev_tokens)
+      )
+    # If a sequence starts with a special token, it must be repeated
+    if prev_tokens[0] in self._special_tokens:
+      return OrderedSet([prev_tokens[0]])
+    return self._tokenizer.possible_next_tokens(prev_tokens)
+
+  def to_tokens(self, obj: str | float, /) -> list[str]:
+    string = None
+    if isinstance(obj, str) and obj == 'INVALID':
+      string = 'INVALID'
+    elif isinstance(obj, float):
+      if math.isnan(obj):
+        string = 'NAN'
+      elif obj == float('inf'):
+        string = 'INF'
+      elif obj == float('-inf'):
+        string = 'NINF'
+
+    if string:
+      return [_to_token(string)] * self.num_tokens_per_obj
+    return self._tokenizer.to_tokens(obj)
+
+  def from_tokens(self, tokens: list[str], /) -> str | float:
+    token = _from_token(tokens[0])
+    if token in self.SPECIAL_VALUE_MAP:
+      return self.SPECIAL_VALUE_MAP[token]
+    return self._tokenizer.from_tokens(tokens)

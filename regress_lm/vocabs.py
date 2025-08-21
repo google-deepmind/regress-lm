@@ -88,10 +88,18 @@ class DecoderVocab(BaseVocab[ObjectT]):
 
     return decoded_objs
 
-  def token_ids_at_index(self, index: int) -> list[int]:
-    """Returns the token ids for the given index."""
-    index = index % self.num_tokens_per_obj
-    return [self.stoi[t] for t in self.tokenizer.tokens_at_index(index)]
+  def possible_next_token_ids(self, prev_tokens: Sequence[int]) -> list[int]:
+    """Returns the possible token ids for the next step."""
+    length = len(prev_tokens)
+
+    if length % self.num_tokens_per_obj == 0:
+      new_tokens = []
+    else:
+      remainder = length % self.num_tokens_per_obj
+      new_tokens = [self.itos[i] for i in prev_tokens[-remainder:]]
+
+    possible_next_tokens = self.tokenizer.possible_next_tokens(new_tokens)
+    return [self.stoi[t] for t in possible_next_tokens]
 
   @property
   def bos_pad_id(self) -> int:
