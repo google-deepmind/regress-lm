@@ -62,11 +62,6 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
         **architecture_kwargs,
     )
 
-    # Pre-compute the constraint masks for the decoder.
-    self.register_buffer(
-        'decoder_constraint_masks', self._create_decoder_constraint_masks()
-    )
-
   @property
   def device(self) -> torch.device:
     return next(self.parameters()).device
@@ -154,6 +149,9 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     )
 
     # Batched autoregressive decoding loop
+    expanded_batch_size = batch_size * num_samples
+    vocab_size = len(self.decoder_vocab)
+
     for step_idx in range(self.decode_len):
       # Get logits for the next token for all (B * num_samples) sequences
       # Shape: (B*S, V)
@@ -162,8 +160,15 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
       )
 
       # Apply constraints using the pre-computed mask
-      curr_mask = self.decoder_constraint_masks[step_idx, :]  # (V,)
-      curr_mask = curr_mask.unsqueeze(0)  # (1, V)
+      curr_mask = torch.zeros(
+          (expanded_batch_size, vocab_size), device=self.device
+      )
+
+      for i in range(expanded_batch_size):
+        prev_tokens = generated_sequences_ids[i, :step_idx].tolist()
+        allowed_inds = self.decoder_vocab.possible_next_token_ids(prev_tokens)
+        curr_mask[i, allowed_inds] = 1.0
+
       masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
 
       # Apply temperature sampling, 1 token for each of the B*S sequences
@@ -182,8 +187,8 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     )
 
     # Compute equivalent floats.
-    output_floats = np.zeros(
-        (batch_size, num_samples, self.max_num_objs), dtype=float
+    output_floats = np.empty(
+        (batch_size, num_samples, self.max_num_objs), dtype=object
     )
     for b in range(batch_size):
       for s_idx in range(num_samples):
@@ -248,14 +253,6 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     if len(token_ids) > self.max_input_len:
       return token_ids[: self.max_input_len]
     return token_ids + [encoder_pad_idx] * (self.max_input_len - len(token_ids))
-
-  def _create_decoder_constraint_masks(self) -> torch.Tensor:
-    vocab_size = len(self.decoder_vocab)
-    masks = np.zeros((self.decode_len, vocab_size), dtype=np.float32)
-    for step_idx in range(self.decode_len):
-      for allowed_token_id in self.decoder_vocab.token_ids_at_index(step_idx):
-        masks[step_idx, allowed_token_id] = 1.0
-    return torch.from_numpy(masks)
 
 
 def _detect_overfitting(losses: Sequence[float]) -> bool:
