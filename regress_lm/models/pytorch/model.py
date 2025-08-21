@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """PyTorch implementation of a RegressLM."""
-
+# pytype:disable=attribute-error
 from concurrent import futures
 import functools
 import math
@@ -45,6 +45,7 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
       max_num_objs: int = 1,
       learning_rate: float = 1e-4,
       z_loss_coef: float | None = None,
+      compile_model: bool = True,  # Turn off for tests.
       **architecture_kwargs,
   ):
     super().__init__()
@@ -63,6 +64,9 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
         max_decoder_len=self.decode_len + 1,
         **architecture_kwargs,
     )
+
+    if compile_model:
+      self.encoder_decoder = torch.compile(self.encoder_decoder)
 
   @property
   def device(self) -> torch.device:

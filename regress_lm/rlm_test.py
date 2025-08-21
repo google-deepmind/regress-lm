@@ -25,6 +25,7 @@ class RlmTest(absltest.TestCase):
         d_model=32,
         num_encoder_layers=1,
         num_decoder_layers=1,
+        compile_model=False,
     )
     examples = [core.Example(x='hello', y=0.3), core.Example(x='world', y=0.7)]
     reg_lm.fine_tune(examples, max_epochs=2)

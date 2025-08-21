@@ -51,6 +51,7 @@ class RegressLM:
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
         learning_rate=kwargs.get("learning_rate", 1e-4),
+        compile_model=kwargs.get("compile_model", True),
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=kwargs.get("num_encoder_layers", 2),
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),

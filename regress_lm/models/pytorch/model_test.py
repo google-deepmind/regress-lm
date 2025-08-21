@@ -41,6 +41,7 @@ class ModelTest(parameterized.TestCase):
         encoder_vocab=self.encoder_vocab,
         decoder_vocab=self.decoder_vocab,
         max_input_len=4,
+        compile_model=False,
         **self.architecture_kwargs,
     )
     self.optimizer = optim.Adafactor(
@@ -101,6 +102,7 @@ class ModelTest(parameterized.TestCase):
         encoder_vocab=self.encoder_vocab,
         decoder_vocab=vocabs.DecoderVocab(tokenizer),
         max_input_len=4,
+        compile_model=False,
         **self.architecture_kwargs,
     )
     batch = model.convert_examples(
@@ -117,6 +119,7 @@ class ModelTest(parameterized.TestCase):
         decoder_vocab=self.decoder_vocab,
         max_input_len=4,
         max_num_objs=2,
+        compile_model=False,
         **self.architecture_kwargs,
     )
     self.assertEqual(model.decode_len, 12)
