@@ -275,6 +275,78 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
     return sign * (self.base**exponent) * mantissa
 
 
+class NormalizedTokenizer(DecoderTokenizer[float]):
+  """Tokenizer which supports only numbers within [0,1].
+
+  A float `f` in [0,1] is represented by a sequence of integer tokens in a
+  given base. For example, with base=10 and length=3, 0.523 is represented as
+  [<5>, <2>, <3>]. This is equivalent to `5 * 10**-1 + 2 * 10**-2 + 3 * 10**-3`.
+
+  Attributes:
+    base: The base for the tokenization. The vocabulary will be digits from 0 to
+      base-1.
+    length: The number of tokens used to represent a single float. This
+      determines the precision.
+  """
+
+  def __init__(self, base: int = 10, length: int = 3):
+    if not base >= 2:
+      raise ValueError(f'Base must be >= 2, got {base}')
+    if not length >= 1:
+      raise ValueError(f'Length must be >= 1, got {length}')
+    self.base = base
+    self.length = length
+
+  @property
+  def num_tokens_per_obj(self) -> int:
+    return self.length
+
+  def all_tokens(self) -> OrderedSet[str]:
+    return OrderedSet([_to_token(i) for i in range(self.base)])
+
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    if len(prev_tokens) >= self.length:
+      raise ValueError(f'Index {len(prev_tokens)} out of bounds.')
+    # For this tokenizer, any digit can appear at any position.
+    return self.all_tokens()
+
+  def to_tokens(self, f: float, /) -> list[str]:
+    if not 0 <= f <= 1:
+      raise ValueError(f'Input float must be between 0 and 1, got {f}')
+
+    # Scale float and convert to an integer in the specified base.
+    f_trunc = int(f * self.base**self.length)
+
+    # Handle the edge case where f is exactly 1.0. The representation should
+    # be the largest possible number, i.e., [base-1, base-1, ...].
+    if f_trunc == self.base**self.length:
+      f_trunc -= 1
+
+    # Get the base representation, padded with zeros to the left.
+    base_repr_str = np.base_repr(f_trunc, base=self.base).zfill(self.length)
+
+    # Convert each digit character to a token, using the correct base.
+    return [_to_token(int(b, self.base)) for b in base_repr_str]
+
+  def from_tokens(self, tokens: list[str], /) -> float:
+    if len(tokens) != self.length:
+      raise ValueError(f'Expected {self.length} tokens, but got {len(tokens)}.')
+
+    # Convert string tokens back to integer digits.
+    token_ids = [int(str(_from_token(t))) for t in tokens]
+
+    if not all(0 <= tid < self.base for tid in token_ids):
+      raise ValueError(f'Token IDs {token_ids} out of range(0, {self.base})')
+
+    # Calculate the float value from the integer digits.
+    # The formula is: sum(d_i * base^(-(i+1))) for i in 0..length-1
+    x = np.asarray(token_ids, dtype=np.float32)
+    coeffs = np.power(
+        self.base, -np.arange(1, self.length + 1), dtype=np.float32
+    )
+    return float(np.sum(x * coeffs))
+
+
 class AddSpecialValues(DecoderTokenizer[str | float]):
   """Wraps a DecoderTokenizer to add special tokens."""
 

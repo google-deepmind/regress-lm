@@ -13,7 +13,10 @@
 # limitations under the License.
 
 import math
+
+import numpy as np
 from regress_lm import tokenizers
+
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -130,6 +133,81 @@ class IEEEFloatTokenizerTest(parameterized.TestCase):
     signs = ['<+>', '<->']
     digits = [f'<{i}>' for i in range(base)]
     self.assertEqual(list(out), signs + digits)
+
+
+class NormalizedTokenizerTest(parameterized.TestCase):
+
+  @parameterized.parameters(
+      # Base 10 tests
+      (0.123, 10, 3, '<1><2><3>', 0.123),
+      (0.0, 10, 3, '<0><0><0>', 0.0),
+      (1.0, 10, 3, '<9><9><9>', 0.999),
+      (0.999, 10, 3, '<9><9><9>', 0.999),
+      (0.1, 10, 3, '<1><0><0>', 0.1),
+      (0.12345, 10, 4, '<1><2><3><4>', 0.1234),  # Truncation
+      # Base 2 tests
+      (0.5, 2, 3, '<1><0><0>', 0.5),  # 1/2
+      (0.25, 2, 3, '<0><1><0>', 0.25),  # 1/4
+      (0.875, 2, 3, '<1><1><1>', 0.875),  # 1/2 + 1/4 + 1/8
+      (1.0, 2, 3, '<1><1><1>', 0.875),
+      # Base 16 tests
+      (0.5, 16, 2, '<8><0>', 0.5),  # 8/16
+      (1.0, 16, 2, '<15><15>', 15 / 16 + 15 / 256),
+  )
+  def test_tokenize_and_from_tokens(
+      self, f: float, base: int, length: int, tokens_str: str, f_prime: float
+  ):
+    tokenizer = tokenizers.NormalizedTokenizer(base=base, length=length)
+
+    # Test tokenization
+    out_tokens = tokenizer.to_tokens(f)
+    self.assertEqual(''.join(out_tokens), tokens_str)
+
+    # Test de-tokenization
+    reconstructed_f = tokenizer.from_tokens(out_tokens)
+    self.assertTrue(
+        np.isclose(reconstructed_f, f_prime),
+        msg=f'Expected {f_prime}, but got {reconstructed_f}',
+    )
+
+  @parameterized.parameters((2,), (10,), (16,))
+  def test_all_tokens_used(self, base: int):
+    tokenizer = tokenizers.NormalizedTokenizer(base=base)
+    all_tokens = tokenizer.all_tokens()
+    expected_tokens = [f'<{i}>' for i in range(base)]
+    self.assertEqual(list(all_tokens), expected_tokens)
+
+  def test_possible_next_tokens(self):
+    tokenizer = tokenizers.NormalizedTokenizer(base=10, length=4)
+    expected_tokens = tokenizer.all_tokens()
+
+    # At the beginning
+    self.assertEqual(tokenizer.possible_next_tokens([]), expected_tokens)
+    # In the middle
+    self.assertEqual(
+        tokenizer.possible_next_tokens(['<1>', '<2>']), expected_tokens
+    )
+
+    # Test bounds check
+    with self.assertRaises(ValueError):
+      tokenizer.possible_next_tokens(['<1>', '<2>', '<3>', '<4>'])
+
+  def test_input_validation(self):
+    tokenizer = tokenizers.NormalizedTokenizer(base=10, length=3)
+
+    # to_tokens input range
+    with self.assertRaisesRegex(ValueError, 'must be between 0 and 1'):
+      tokenizer.to_tokens(1.1)
+    with self.assertRaisesRegex(ValueError, 'must be between 0 and 1'):
+      tokenizer.to_tokens(-0.1)
+
+    # from_tokens length mismatch
+    with self.assertRaisesRegex(ValueError, 'Expected 3 tokens, but got 2'):
+      tokenizer.from_tokens(['<1>', '<2>'])
+
+    # from_tokens out-of-range token
+    with self.assertRaisesRegex(ValueError, 'out of range'):
+      tokenizer.from_tokens(['<1>', '<10>', '<3>'])
 
 
 class AddSpecialValuesTest(parameterized.TestCase):
