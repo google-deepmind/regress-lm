@@ -35,9 +35,9 @@ class RegressLM:
       self,
       examples: Sequence[core.Example],
       validation_examples: Sequence[core.Example] | None = None,
-      **kwargs,
+      seed: int | None = None,
   ):
-    self.fine_tuner.fine_tune(examples, validation_examples, **kwargs)
+    self.fine_tuner.fine_tune(examples, validation_examples, seed=seed)
 
   @classmethod
   def from_default(cls, device: str | None = None, **kwargs) -> "RegressLM":
@@ -59,7 +59,13 @@ class RegressLM:
         additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
     ).to(device)
 
-    fine_tuner = pytorch_model.PyTorchFineTuner(model)
+    fine_tuner = pytorch_model.PyTorchFineTuner(
+        model,
+        optimizer=kwargs.get("optimizer", None),
+        max_epochs=kwargs.get("max_epochs", 100),
+        micro_batch_size=kwargs.get("micro_batch_size", None),
+        gradient_acc_steps=kwargs.get("gradient_acc_steps", 1),
+    )
     return cls(model, fine_tuner)
 
   def sample(

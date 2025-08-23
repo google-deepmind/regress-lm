@@ -28,7 +28,7 @@ class RlmTest(absltest.TestCase):
         compile_model=False,
     )
     examples = [core.Example(x='hello', y=0.3), core.Example(x='world', y=0.7)]
-    reg_lm.fine_tune(examples, max_epochs=2)
+    reg_lm.fine_tune(examples)
 
     query1, query2 = core.ExampleInput(x='hi'), core.ExampleInput(x='bye')
     samples1, samples2 = reg_lm.sample([query1, query2], num_samples=128)

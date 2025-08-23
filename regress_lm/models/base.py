@@ -69,6 +69,7 @@ class FineTuner(abc.ABC):
       self,
       examples: Sequence[core.Example],
       validation_examples: Sequence[core.Example] | None = None,
+      seed: int | None = None,
   ) -> None:
     """Fine-tunes the model on the given examples.
 
@@ -79,6 +80,7 @@ class FineTuner(abc.ABC):
       examples: Training examples.
       validation_examples: Validation examples for early-stopping. If None, uses
         training examples.
+      seed: Random seed for fine-tuning.
 
     Returns:
       None

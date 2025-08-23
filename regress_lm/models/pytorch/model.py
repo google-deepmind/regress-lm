@@ -270,25 +270,30 @@ def _detect_overfitting(losses: Sequence[float]) -> bool:
   return losses[-1] > losses[-2]
 
 
-def _train_step(
-    model: PyTorchModel,
-    optimizer: optim.Optimizer,
-    batch: dict[str, torch.Tensor],
-):
-  """Performs a single training step."""
-  model.train()
-  optimizer.zero_grad()
-  losses_per_example, _ = model.compute_losses_and_metrics(batch)
-  loss = losses_per_example.mean()
-  loss.backward()
-  optimizer.step()
+class _BestStateTracker:
+  """A simple class to track the best model state based on a metric."""
+
+  def __init__(self):
+    self.best_loss = float('inf')
+    self.best_state = None
+
+  def update(self, current_loss: float, model: nn.Module):
+    """Updates the tracker with the current loss and model state."""
+    if current_loss < self.best_loss:
+      self.best_loss = current_loss
+      self.best_state = model.state_dict()
 
 
 class PyTorchFineTuner(model_base.FineTuner):
   """PyTorch implementation of a local finetuner."""
 
   def __init__(
-      self, model: PyTorchModel, optimizer: optim.Optimizer | None = None
+      self,
+      model: PyTorchModel,
+      optimizer: optim.Optimizer | None = None,
+      max_epochs: int = 100,
+      micro_batch_size: int | None = None,
+      gradient_acc_steps: int = 1,
   ):
     self.model = model
 
@@ -298,54 +303,102 @@ class PyTorchFineTuner(model_base.FineTuner):
       )
     self.optimizer = optimizer
 
+    self.max_epochs = max_epochs
+    self.micro_batch_size = micro_batch_size
+    self.gradient_acc_steps = gradient_acc_steps
+
   def fine_tune(
       self,
       examples: Sequence[core.Example],
       validation_examples: Sequence[core.Example] | None = None,
-      max_epochs: int = 100,
-      batch_size: int | None = None,
       seed: int | None = None,
   ) -> None:
+    """Fine-tunes the model using the provided examples."""
     validation_examples = validation_examples or examples
-    valid_tensors = self.model.convert_examples(validation_examples)
-
-    batch_size = batch_size or len(examples)
-    train_tensors = self.model.convert_examples(examples)
+    effective_micro_batch_size = self.micro_batch_size or len(examples)
     rng = np.random.RandomState(seed)
 
+    train_tensors = self.model.convert_examples(examples)
+    valid_tensors = self.model.convert_examples(validation_examples)
+
     valid_losses = []
-    state = self.model.state_dict()
-    prev_state = state
-    for _ in range(max_epochs):
-      self.model.eval()  # Eval mode.
+    tracker = _BestStateTracker()
 
-      # === Batched validation loop ===
-      all_val_losses = []
-      num_valid_batches = math.ceil(len(validation_examples) / batch_size)
-      with torch.no_grad():
-        for i in range(num_valid_batches):
-          valid_batch = {
-              k: v[i * batch_size : (i + 1) * batch_size]
-              for k, v in valid_tensors.items()
-          }
-          # Get per-example losses and accumulate them
-          batch_losses, _ = self.model.compute_losses_and_metrics(valid_batch)
-          all_val_losses.extend(batch_losses.cpu().numpy())
+    for _ in range(self.max_epochs):
+      self._run_training_epoch(train_tensors, effective_micro_batch_size, rng)
 
-      # Calculate the mean loss over all validation examples
-      valid_losses.append(np.mean(all_val_losses))
+      val_loss = self._run_validation_epoch(
+          valid_tensors, effective_micro_batch_size
+      )
+      valid_losses.append(val_loss)
 
+      tracker.update(val_loss, self.model)
       if _detect_overfitting(valid_losses):
-        state = prev_state
         break
 
-      prev_state = state
-      num_batches = math.ceil(len(examples) / batch_size)
-      all_indices = rng.permutation(len(examples))
-      for i in range(num_batches):
-        inds = all_indices[i * batch_size : (i + 1) * batch_size]
-        batch = {k: v[inds] for k, v in train_tensors.items()}
-        _train_step(self.model, self.optimizer, batch)
-      state = self.model.state_dict()
+    if tracker.best_state:
+      self.model.load_state_dict(tracker.best_state)
 
-    self.model.load_state_dict(state)
+  def _run_training_epoch(
+      self,
+      train_tensors: dict[str, torch.Tensor],
+      micro_batch_size: int,
+      rng: np.random.RandomState,
+  ):
+    """Runs a single training epoch with gradient accumulation."""
+    self.model.train()
+    self.optimizer.zero_grad()
+
+    num_micro_batches = math.ceil(
+        self._num_examples(train_tensors) / micro_batch_size
+    )
+    all_indices = rng.permutation(self._num_examples(train_tensors))
+
+    for i in range(num_micro_batches):
+      inds = all_indices[i * micro_batch_size : (i + 1) * micro_batch_size]
+      batch = {k: v[inds] for k, v in train_tensors.items()}
+      self._forward_backward_pass(batch)
+
+      if (i + 1) % self.gradient_acc_steps == 0:
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+
+    # Final step for any remaining gradients
+    if (num_micro_batches % self.gradient_acc_steps) != 0:
+      self.optimizer.step()
+      self.optimizer.zero_grad()
+
+  def _forward_backward_pass(
+      self, batch: dict[str, torch.Tensor]
+  ) -> torch.Tensor:
+    losses_per_example, _ = self.model.compute_losses_and_metrics(batch)
+    loss = losses_per_example.mean()
+
+    scaled_loss = loss / self.gradient_acc_steps
+    scaled_loss.backward()
+    return loss
+
+  def _run_validation_epoch(
+      self, valid_tensors: dict[str, torch.Tensor], micro_batch_size: int
+  ) -> float:
+    self.model.eval()
+    all_val_losses = []
+    num_valid_batches = math.ceil(
+        self._num_examples(valid_tensors) / micro_batch_size
+    )
+
+    with torch.no_grad():
+      for i in range(num_valid_batches):
+        valid_batch = {
+            k: v[i * micro_batch_size : (i + 1) * micro_batch_size]
+            for k, v in valid_tensors.items()
+        }
+        batch_losses, _ = self.model.compute_losses_and_metrics(valid_batch)
+        all_val_losses.extend(batch_losses.cpu().numpy())
+
+    return float(np.mean(all_val_losses))
+
+  def _num_examples(self, tensors: dict[str, torch.Tensor]) -> int:
+    if not tensors:
+      return 0
+    return next(iter(tensors.values())).size(0)
