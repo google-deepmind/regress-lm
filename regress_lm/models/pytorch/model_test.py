@@ -164,16 +164,12 @@ class ModelTest(parameterized.TestCase):
     model_microbatch.load_state_dict(model_base.state_dict())
 
     fine_tuner_base = pytorch_model.PyTorchFineTuner(
-        model=model_base,
-        max_epochs=1,
-        micro_batch_size=4,
-        gradient_acc_steps=1,
+        model=model_base, max_epochs=1
     )
     fine_tuner_microbatch = pytorch_model.PyTorchFineTuner(
         model=model_microbatch,
         max_epochs=1,
-        micro_batch_size=2,
-        gradient_acc_steps=2,
+        batch_size_per_device=2,
     )
 
     train_examples = [core.Example(x='hello', y=1.0)] * 4

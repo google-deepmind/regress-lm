@@ -264,24 +264,24 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
     return token_ids + [encoder_pad_idx] * (self.max_input_len - len(token_ids))
 
 
-def _detect_overfitting(losses: Sequence[float]) -> bool:
-  if len(losses) <= 1:
-    return False
-  return losses[-1] > losses[-2]
-
-
-class _BestStateTracker:
-  """A simple class to track the best model state based on a metric."""
+class _EarlyStoppingTracker:
+  """Tracks valid loss, saves the best model state, and detects overfitting."""
 
   def __init__(self):
     self.best_loss = float('inf')
     self.best_state = None
+    self._loss_history = []
 
   def update(self, current_loss: float, model: nn.Module):
-    """Updates the tracker with the current loss and model state."""
+    self._loss_history.append(current_loss)
     if current_loss < self.best_loss:
       self.best_loss = current_loss
       self.best_state = model.state_dict()
+
+  def should_stop(self) -> bool:
+    if len(self._loss_history) <= 1:
+      return False
+    return self._loss_history[-1] > self._loss_history[-2]
 
 
 class PyTorchFineTuner(model_base.FineTuner):
@@ -292,9 +292,21 @@ class PyTorchFineTuner(model_base.FineTuner):
       model: PyTorchModel,
       optimizer: optim.Optimizer | None = None,
       max_epochs: int = 100,
-      micro_batch_size: int | None = None,
-      gradient_acc_steps: int = 1,
+      batch_size: int | None = None,
+      batch_size_per_device: int | None = None,
   ):
+    """Initializes the fine-tuner.
+
+    Args:
+      model: The PyTorch model to be fine-tuned.
+      optimizer: An optional PyTorch optimizer. If None, Adafactor is used.
+      max_epochs: The maximum number of epochs to train for.
+      batch_size: The desired *effective* batch size. If None, performs
+        full-batch gradient descent (uses the entire dataset as one batch).
+      batch_size_per_device: The maximum batch size that can fit on the GPU. If
+        the effective `batch_size` is larger than this, gradient accumulation
+        will be used automatically.
+    """
     self.model = model
 
     if optimizer is None:
@@ -304,8 +316,8 @@ class PyTorchFineTuner(model_base.FineTuner):
     self.optimizer = optimizer
 
     self.max_epochs = max_epochs
-    self.micro_batch_size = micro_batch_size
-    self.gradient_acc_steps = gradient_acc_steps
+    self.batch_size = batch_size
+    self.batch_size_per_device = batch_size_per_device
 
   def fine_tune(
       self,
@@ -315,25 +327,33 @@ class PyTorchFineTuner(model_base.FineTuner):
   ) -> None:
     """Fine-tunes the model using the provided examples."""
     validation_examples = validation_examples or examples
-    effective_micro_batch_size = self.micro_batch_size or len(examples)
     rng = np.random.RandomState(seed)
+
+    effective_batch_size = self.batch_size or len(examples)
+    micro_batch_size = effective_batch_size
+    if self.batch_size_per_device is not None:
+      micro_batch_size = min(effective_batch_size, self.batch_size_per_device)
+    grad_acc_steps = math.ceil(effective_batch_size / micro_batch_size)
 
     train_tensors = self.model.convert_examples(examples)
     valid_tensors = self.model.convert_examples(validation_examples)
 
-    valid_losses = []
-    tracker = _BestStateTracker()
-
+    # Perform an initial validation run before training
+    valid_losses, tracker = [], _EarlyStoppingTracker()
+    initial_val_loss = self._run_validation_epoch(
+        valid_tensors, micro_batch_size
+    )
+    tracker.update(initial_val_loss, self.model)
     for _ in range(self.max_epochs):
-      self._run_training_epoch(train_tensors, effective_micro_batch_size, rng)
-
-      val_loss = self._run_validation_epoch(
-          valid_tensors, effective_micro_batch_size
+      self._run_training_epoch(
+          train_tensors, micro_batch_size, grad_acc_steps, rng
       )
+
+      val_loss = self._run_validation_epoch(valid_tensors, micro_batch_size)
       valid_losses.append(val_loss)
 
       tracker.update(val_loss, self.model)
-      if _detect_overfitting(valid_losses):
+      if tracker.should_stop():
         break
 
     if tracker.best_state:
@@ -343,40 +363,38 @@ class PyTorchFineTuner(model_base.FineTuner):
       self,
       train_tensors: dict[str, torch.Tensor],
       micro_batch_size: int,
+      grad_acc_steps: int,
       rng: np.random.RandomState,
   ):
     """Runs a single training epoch with gradient accumulation."""
     self.model.train()
     self.optimizer.zero_grad()
 
-    num_micro_batches = math.ceil(
-        self._num_examples(train_tensors) / micro_batch_size
-    )
-    all_indices = rng.permutation(self._num_examples(train_tensors))
+    num_examples = self._num_examples(train_tensors)
+    num_micro_batches = math.ceil(num_examples / micro_batch_size)
+    all_indices = rng.permutation(num_examples)
 
     for i in range(num_micro_batches):
       inds = all_indices[i * micro_batch_size : (i + 1) * micro_batch_size]
       batch = {k: v[inds] for k, v in train_tensors.items()}
-      self._forward_backward_pass(batch)
+      self._forward_backward_pass(batch, grad_acc_steps)
 
-      if (i + 1) % self.gradient_acc_steps == 0:
+      if (i + 1) % grad_acc_steps == 0:
         self.optimizer.step()
         self.optimizer.zero_grad()
 
     # Final step for any remaining gradients
-    if (num_micro_batches % self.gradient_acc_steps) != 0:
+    if (num_micro_batches % grad_acc_steps) != 0:
       self.optimizer.step()
       self.optimizer.zero_grad()
 
   def _forward_backward_pass(
-      self, batch: dict[str, torch.Tensor]
-  ) -> torch.Tensor:
+      self, batch: dict[str, torch.Tensor], grad_acc_steps: int
+  ) -> None:
     losses_per_example, _ = self.model.compute_losses_and_metrics(batch)
     loss = losses_per_example.mean()
-
-    scaled_loss = loss / self.gradient_acc_steps
+    scaled_loss = loss / grad_acc_steps
     scaled_loss.backward()
-    return loss
 
   def _run_validation_epoch(
       self, valid_tensors: dict[str, torch.Tensor], micro_batch_size: int

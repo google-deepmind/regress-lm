@@ -63,8 +63,8 @@ class RegressLM:
         model,
         optimizer=kwargs.get("optimizer", None),
         max_epochs=kwargs.get("max_epochs", 100),
-        micro_batch_size=kwargs.get("micro_batch_size", None),
-        gradient_acc_steps=kwargs.get("gradient_acc_steps", 1),
+        batch_size=kwargs.get("batch_size", None),
+        batch_size_per_device=kwargs.get("batch_size_per_device", None),
     )
     return cls(model, fine_tuner)
 
