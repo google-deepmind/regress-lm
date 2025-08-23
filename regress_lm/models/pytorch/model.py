@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """PyTorch implementation of a RegressLM."""
+
 # pytype:disable=attribute-error
 from concurrent import futures
 import functools
@@ -79,7 +80,7 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
   def decode_len(self) -> int:
     return self.max_num_objs * self.decoder_vocab.num_tokens_per_obj
 
-  def compute_loss_and_metrics(
+  def compute_losses_and_metrics(
       self, examples: dict[str, Tensor]
   ) -> tuple[Tensor, dict[str, Tensor]]:
     examples = self.to_device(examples)
@@ -88,26 +89,24 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
         examples['encoder_input'], examples['decoder_input']
     )
     targets = examples['decoder_target']
-    loss = F.cross_entropy(
-        logits.reshape(-1, logits.shape[-1]),  # (B * L_decode, V)
-        targets.reshape(-1),  # Reshape to (B * L_decode)
+
+    ce_loss_per_tokens = F.cross_entropy(
+        logits.permute(0, 2, 1),
+        targets,
         ignore_index=self.decoder_vocab.bos_pad_id,
+        reduction='none',
     )
-    metrics['ce_loss'] = loss.detach()
+    loss_per_example = ce_loss_per_tokens.sum(dim=1)
 
     if self.z_loss_coef is not None:
-      # Calculate z_loss (log-softmax normalization constant).
-      log_z = torch.logsumexp(logits, dim=-1)  # (B * L_decode)
+      log_z = torch.logsumexp(logits, dim=-1)
       z_loss_per_token = self.z_loss_coef * (log_z**2)
-
-      # Calculate the mean z_loss over the real (non-padded) tokens.
       loss_mask = (targets != self.decoder_vocab.bos_pad_id).float()
-      z_loss = (z_loss_per_token * loss_mask).sum() / loss_mask.sum()
-      metrics['z_loss'] = z_loss.detach()
-      loss += z_loss
+      z_loss_per_example = (z_loss_per_token * loss_mask).sum(dim=1)
+      loss_per_example = loss_per_example + z_loss_per_example
 
-    metrics['loss'] = loss.detach()
-    return loss, metrics
+    metrics['loss_mean'] = loss_per_example.mean().detach()
+    return loss_per_example, metrics
 
   @torch.no_grad()
   def decode(
@@ -279,7 +278,8 @@ def _train_step(
   """Performs a single training step."""
   model.train()
   optimizer.zero_grad()
-  loss, _ = model.compute_loss_and_metrics(batch)
+  losses_per_example, _ = model.compute_losses_and_metrics(batch)
+  loss = losses_per_example.mean()
   loss.backward()
   optimizer.step()
 
@@ -307,7 +307,7 @@ class PyTorchFineTuner(model_base.FineTuner):
       seed: int | None = None,
   ) -> None:
     validation_examples = validation_examples or examples
-    valid_batch = self.model.convert_examples(validation_examples)
+    valid_tensors = self.model.convert_examples(validation_examples)
 
     batch_size = batch_size or len(examples)
     train_tensors = self.model.convert_examples(examples)
@@ -318,8 +318,22 @@ class PyTorchFineTuner(model_base.FineTuner):
     prev_state = state
     for _ in range(max_epochs):
       self.model.eval()  # Eval mode.
-      val_loss, _ = self.model.compute_loss_and_metrics(valid_batch)
-      valid_losses.append(val_loss.detach().item())
+
+      # === Batched validation loop ===
+      all_val_losses = []
+      num_valid_batches = math.ceil(len(validation_examples) / batch_size)
+      with torch.no_grad():
+        for i in range(num_valid_batches):
+          valid_batch = {
+              k: v[i * batch_size : (i + 1) * batch_size]
+              for k, v in valid_tensors.items()
+          }
+          # Get per-example losses and accumulate them
+          batch_losses, _ = self.model.compute_losses_and_metrics(valid_batch)
+          all_val_losses.extend(batch_losses.cpu().numpy())
+
+      # Calculate the mean loss over all validation examples
+      valid_losses.append(np.mean(all_val_losses))
 
       if _detect_overfitting(valid_losses):
         state = prev_state
@@ -331,7 +345,6 @@ class PyTorchFineTuner(model_base.FineTuner):
       for i in range(num_batches):
         inds = all_indices[i * batch_size : (i + 1) * batch_size]
         batch = {k: v[inds] for k, v in train_tensors.items()}
-        batch = self.model.to_device(batch)
         _train_step(self.model, self.optimizer, batch)
       state = self.model.state_dict()
 

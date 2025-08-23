@@ -68,7 +68,7 @@ class T5GemmaModel(nn.Module, model_base.Model[Tensor]):
         model_name, **(tokenizer_kwargs or {})
     )
 
-  def compute_loss_and_metrics(
+  def compute_losses_and_metrics(
       self, examples: dict[str, Tensor]
   ) -> tuple[Tensor, dict[str, Tensor]]:
     outputs = self.model(
@@ -76,8 +76,20 @@ class T5GemmaModel(nn.Module, model_base.Model[Tensor]):
         attention_mask=examples['attention_mask'],
         labels=examples['labels'],
     )
-    loss = outputs.loss
-    return loss, {'loss': loss.detach()}
+    logits = outputs.logits
+    labels = examples['labels']
+
+    vocab_size = logits.shape[-1]
+    loss_per_token = F.cross_entropy(
+        logits.view(-1, vocab_size),
+        labels.view(-1),
+        ignore_index=IGNORE_TOKEN_ID,
+        reduction='none',
+    )
+    loss_per_example = loss_per_token.view(labels.shape).sum(dim=1)
+
+    metrics = {'loss_mean': loss_per_example.mean().detach()}
+    return loss_per_example, metrics
 
   @torch.no_grad()
   def decode(
@@ -114,9 +126,7 @@ class T5GemmaModel(nn.Module, model_base.Model[Tensor]):
     )
 
     # Remove the starter token and reshape. (B, S, L_decode)
-    decoded_tokens = decoded_tokens[:, 1:].view(
-        batch_size, num_samples, self.max_decode_len
-    )
+    decoded_tokens = decoded_tokens[:, 1:].view(batch_size, num_samples, -1)
     output_strings = np.array(decoded_texts).reshape(batch_size, num_samples)
     return decoded_tokens, output_strings
 

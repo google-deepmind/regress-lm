@@ -47,9 +47,9 @@ class T5gemmaModelTest(absltest.TestCase):
   def test_loss_and_metrics(self):
     examples = [core.Example(x="hello", y=1.0), core.Example(x="world", y=0.0)]
     batch = self.model.convert_examples(examples)
-    loss, _ = self.model.compute_loss_and_metrics(batch)
-    self.assertEqual(loss.shape, ())
-    self.assertAlmostEqual(loss.item(), 3.61566185)
+    losses_per_example, _ = self.model.compute_losses_and_metrics(batch)
+    self.assertEqual(losses_per_example.shape, (2,))
+    self.assertAlmostEqual(losses_per_example.mean().item(), 28.925296783)
 
   def test_log_prob(self):
     examples = [core.Example(x="hello", y=1.0), core.Example(x="world", y=0.0)]
