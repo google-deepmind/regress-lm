@@ -22,6 +22,7 @@ from regress_lm import vocabs
 from regress_lm.models import base as model_base
 from regress_lm.models.pytorch import model as pytorch_model
 import torch
+from torch import optim
 
 
 class RegressLM:
@@ -50,7 +51,6 @@ class RegressLM:
         or vocabs.DecoderVocab(tokenizers.P10Tokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
-        learning_rate=kwargs.get("learning_rate", 1e-4),
         compile_model=kwargs.get("compile_model", True),
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=kwargs.get("num_encoder_layers", 2),
@@ -59,9 +59,12 @@ class RegressLM:
         additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
     ).to(device)
 
+    optimizer = kwargs.get("optimizer", None) or optim.Adafactor(
+        filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4
+    )
     fine_tuner = pytorch_model.PyTorchFineTuner(
         model,
-        optimizer=kwargs.get("optimizer", None),
+        optimizer=optimizer,
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),

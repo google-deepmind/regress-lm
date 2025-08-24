@@ -44,7 +44,6 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
       decoder_vocab: vocabs.DecoderVocab[float],
       max_input_len: int = 2048,
       max_num_objs: int = 1,
-      learning_rate: float = 1e-4,
       z_loss_coef: float | None = None,
       compile_model: bool = True,  # Turn off for tests.
       **architecture_kwargs,
@@ -290,7 +289,7 @@ class PyTorchFineTuner(model_base.FineTuner):
   def __init__(
       self,
       model: PyTorchModel,
-      optimizer: optim.Optimizer | None = None,
+      optimizer: optim.Optimizer,
       max_epochs: int = 100,
       batch_size: int | None = None,
       batch_size_per_device: int | None = None,
@@ -299,7 +298,7 @@ class PyTorchFineTuner(model_base.FineTuner):
 
     Args:
       model: The PyTorch model to be fine-tuned.
-      optimizer: An optional PyTorch optimizer. If None, Adafactor is used.
+      optimizer: An optional PyTorch optimizer.
       max_epochs: The maximum number of epochs to train for.
       batch_size: The desired *effective* batch size. If None, performs
         full-batch gradient descent (uses the entire dataset as one batch).
@@ -308,11 +307,6 @@ class PyTorchFineTuner(model_base.FineTuner):
         will be used automatically.
     """
     self.model = model
-
-    if optimizer is None:
-      optimizer = optim.Adafactor(
-          filter(lambda p: p.requires_grad, self.model.parameters()), lr=1e-4
-      )
     self.optimizer = optimizer
 
     self.max_epochs = max_epochs
