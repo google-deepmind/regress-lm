@@ -24,9 +24,11 @@ from regress_lm import core
 from regress_lm import vocabs
 from regress_lm.models import base as model_base
 from regress_lm.models.pytorch import architecture
+from regress_lm.models.pytorch import data_utils
 import torch
 from torch import nn
 from torch import optim
+from torch import utils
 import torch.nn.functional as F
 
 NEG_INF = -1.0e7
@@ -308,7 +310,6 @@ class PyTorchFineTuner(model_base.FineTuner):
     """
     self.model = model
     self.optimizer = optimizer
-
     self.max_epochs = max_epochs
     self.batch_size = batch_size
     self.batch_size_per_device = batch_size_per_device
@@ -321,7 +322,10 @@ class PyTorchFineTuner(model_base.FineTuner):
   ) -> None:
     """Fine-tunes the model using the provided examples."""
     validation_examples = validation_examples or examples
-    rng = np.random.RandomState(seed)
+
+    g = torch.Generator()
+    if seed is not None:
+      g.manual_seed(seed)
 
     effective_batch_size = self.batch_size or len(examples)
     micro_batch_size = effective_batch_size
@@ -332,20 +336,26 @@ class PyTorchFineTuner(model_base.FineTuner):
     train_tensors = self.model.convert_examples(examples)
     valid_tensors = self.model.convert_examples(validation_examples)
 
-    # Perform an initial validation run before training
-    valid_losses, tracker = [], _EarlyStoppingTracker()
-    initial_val_loss = self._run_validation_epoch(
-        valid_tensors, micro_batch_size
+    train_dl = utils.data.DataLoader(
+        data_utils.DictTensorDataset(train_tensors),
+        batch_size=micro_batch_size,
+        shuffle=True,
+        generator=g,
     )
+    valid_dl = utils.data.DataLoader(
+        data_utils.DictTensorDataset(valid_tensors),
+        batch_size=micro_batch_size,
+        shuffle=False,
+    )
+
+    # Perform an initial validation run before training
+    tracker = _EarlyStoppingTracker()
+    initial_val_loss = self._run_validation_epoch(valid_dl)
     tracker.update(initial_val_loss, self.model)
+
     for _ in range(self.max_epochs):
-      self._run_training_epoch(
-          train_tensors, micro_batch_size, grad_acc_steps, rng
-      )
-
-      val_loss = self._run_validation_epoch(valid_tensors, micro_batch_size)
-      valid_losses.append(val_loss)
-
+      self._run_training_epoch(train_dl, grad_acc_steps)
+      val_loss = self._run_validation_epoch(valid_dl)
       tracker.update(val_loss, self.model)
       if tracker.should_stop():
         break
@@ -354,23 +364,13 @@ class PyTorchFineTuner(model_base.FineTuner):
       self.model.load_state_dict(tracker.best_state)
 
   def _run_training_epoch(
-      self,
-      train_tensors: dict[str, torch.Tensor],
-      micro_batch_size: int,
-      grad_acc_steps: int,
-      rng: np.random.RandomState,
+      self, train_dl: utils.data.DataLoader, grad_acc_steps: int
   ):
     """Runs a single training epoch with gradient accumulation."""
     self.model.train()
     self.optimizer.zero_grad()
 
-    num_examples = self._num_examples(train_tensors)
-    num_micro_batches = math.ceil(num_examples / micro_batch_size)
-    all_indices = rng.permutation(num_examples)
-
-    for i in range(num_micro_batches):
-      inds = all_indices[i * micro_batch_size : (i + 1) * micro_batch_size]
-      batch = {k: v[inds] for k, v in train_tensors.items()}
+    for i, batch in enumerate(train_dl):
       self._forward_backward_pass(batch, grad_acc_steps)
 
       if (i + 1) % grad_acc_steps == 0:
@@ -378,7 +378,7 @@ class PyTorchFineTuner(model_base.FineTuner):
         self.optimizer.zero_grad()
 
     # Final step for any remaining gradients
-    if (num_micro_batches % grad_acc_steps) != 0:
+    if len(train_dl) % grad_acc_steps != 0:
       self.optimizer.step()
       self.optimizer.zero_grad()
 
@@ -390,27 +390,13 @@ class PyTorchFineTuner(model_base.FineTuner):
     scaled_loss = loss / grad_acc_steps
     scaled_loss.backward()
 
-  def _run_validation_epoch(
-      self, valid_tensors: dict[str, torch.Tensor], micro_batch_size: int
-  ) -> float:
+  def _run_validation_epoch(self, valid_dl: utils.data.DataLoader) -> float:
     self.model.eval()
     all_val_losses = []
-    num_valid_batches = math.ceil(
-        self._num_examples(valid_tensors) / micro_batch_size
-    )
 
     with torch.no_grad():
-      for i in range(num_valid_batches):
-        valid_batch = {
-            k: v[i * micro_batch_size : (i + 1) * micro_batch_size]
-            for k, v in valid_tensors.items()
-        }
+      for valid_batch in valid_dl:
         batch_losses, _ = self.model.compute_losses_and_metrics(valid_batch)
         all_val_losses.extend(batch_losses.cpu().numpy())
 
     return float(np.mean(all_val_losses))
-
-  def _num_examples(self, tensors: dict[str, torch.Tensor]) -> int:
-    if not tensors:
-      return 0
-    return next(iter(tensors.values())).size(0)

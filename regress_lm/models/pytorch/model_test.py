@@ -14,6 +14,7 @@
 
 """Tests for the PyTorch model."""
 
+import copy
 import numpy as np
 from regress_lm import core
 from regress_lm import tokenizers
@@ -44,8 +45,12 @@ class ModelTest(parameterized.TestCase):
         compile_model=False,
         **self.architecture_kwargs,
     )
-    self.optimizer = optim.Adafactor(
-        filter(lambda p: p.requires_grad, self.model.parameters()), lr=0.1
+    self.fine_tuner = pytorch_model.PyTorchFineTuner(
+        self.model,
+        optimizer=optim.Adafactor(
+            filter(lambda p: p.requires_grad, self.model.parameters()), lr=0.1
+        ),
+        max_epochs=1,
     )
 
   def test_convert(self):
@@ -75,10 +80,7 @@ class ModelTest(parameterized.TestCase):
     self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -26.93, 1)
 
     # Update the model. Logprob should improve.
-    fine_tuner = pytorch_model.PyTorchFineTuner(
-        self.model, self.optimizer, max_epochs=1
-    )
-    fine_tuner.fine_tune(raw_examples)
+    self.fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
     self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -18.11, 1)
@@ -99,13 +101,10 @@ class ModelTest(parameterized.TestCase):
     self.assertAlmostEqual(np.median(output_floats), -0.00031275)
 
     # After updating, the median should get closer to target y.
-    fine_tuner = pytorch_model.PyTorchFineTuner(
-        self.model, self.optimizer, max_epochs=1
-    )
-    fine_tuner.fine_tune(raw_example)
+    self.fine_tuner.fine_tune(raw_example, seed=42)
 
     _, output_floats = self.model.decode(batch, num_samples=128)
-    self.assertAlmostEqual(np.median(output_floats), 2.331)
+    self.assertAlmostEqual(np.median(output_floats), 2.2935)
 
   def test_decode_special_tokens(self):
     tokenizer = tokenizers.AddSpecialValues(tokenizers.P10Tokenizer())
@@ -154,21 +153,17 @@ class ModelTest(parameterized.TestCase):
         compile_model=False,
         **self.architecture_kwargs,
     )
-    model_microbatch = pytorch_model.PyTorchModel(
-        encoder_vocab=self.encoder_vocab,
-        decoder_vocab=self.decoder_vocab,
-        max_input_len=4,
-        compile_model=False,
-        **self.architecture_kwargs,
-    )
+    model_microbatch = copy.deepcopy(model_base)
     model_microbatch.load_state_dict(model_base.state_dict())
 
     fine_tuner_base = pytorch_model.PyTorchFineTuner(
-        model=model_base, optimizer=self.optimizer, max_epochs=1
+        model=model_base,
+        optimizer=optim.Adafactor(model_base.parameters(), lr=1e-4),
+        max_epochs=1,
     )
     fine_tuner_microbatch = pytorch_model.PyTorchFineTuner(
         model=model_microbatch,
-        optimizer=self.optimizer,
+        optimizer=optim.Adafactor(model_microbatch.parameters(), lr=1e-4),
         max_epochs=1,
         batch_size_per_device=2,
     )
@@ -181,7 +176,7 @@ class ModelTest(parameterized.TestCase):
 
     # --- Verification ---
     for p1, p2 in zip(model_base.parameters(), model_microbatch.parameters()):
-      torch.testing.assert_close(p1, p2, atol=5e-3, rtol=1e-3)
+      torch.testing.assert_close(p1, p2, atol=1e-7, rtol=1e-5)
 
 
 if __name__ == '__main__':
