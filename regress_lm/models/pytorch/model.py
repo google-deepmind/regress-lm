@@ -268,21 +268,35 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
 class _EarlyStoppingTracker:
   """Tracks valid loss, saves the best model state, and detects overfitting."""
 
-  def __init__(self):
+  def __init__(self, patience: int | None = None):
+    """Initializes the tracker.
+
+    Args:
+      patience: The number of epochs to wait for improvement before stopping. If
+        None, early stopping is disabled.
+    """
+    self.patience = patience
     self.best_loss = float('inf')
     self.best_state = None
-    self._loss_history = []
+    # Counter for epochs without improvement.
+    self.epochs_without_improvement = 0
 
   def update(self, current_loss: float, model: nn.Module):
-    self._loss_history.append(current_loss)
+    """Updates the tracker with the latest validation loss."""
     if current_loss < self.best_loss:
+      # We have a new best loss, so we save the model and reset the counter.
       self.best_loss = current_loss
       self.best_state = model.state_dict()
+      self.epochs_without_improvement = 0
+    else:
+      # The loss did not improve, so we increment the counter.
+      self.epochs_without_improvement += 1
 
   def should_stop(self) -> bool:
-    if len(self._loss_history) <= 1:
+    """Returns True if training should stop, based on the patience counter."""
+    if self.patience is None:  # Early stopping is disabled.
       return False
-    return self._loss_history[-1] > self._loss_history[-2]
+    return self.epochs_without_improvement >= self.patience
 
 
 class PyTorchFineTuner(model_base.FineTuner):
@@ -292,9 +306,11 @@ class PyTorchFineTuner(model_base.FineTuner):
       self,
       model: PyTorchModel,
       optimizer: optim.Optimizer,
+      *,
       max_epochs: int = 100,
       batch_size: int | None = None,
       batch_size_per_device: int | None = None,
+      patience: int | None = 1,
   ):
     """Initializes the fine-tuner.
 
@@ -307,12 +323,15 @@ class PyTorchFineTuner(model_base.FineTuner):
       batch_size_per_device: The maximum batch size that can fit on the GPU. If
         the effective `batch_size` is larger than this, gradient accumulation
         will be used automatically.
+      patience: The number of epochs to wait for improvement before early
+        stopping. If None, early stopping is disabled.
     """
     self.model = model
     self.optimizer = optimizer
     self.max_epochs = max_epochs
     self.batch_size = batch_size
     self.batch_size_per_device = batch_size_per_device
+    self.patience = patience
 
   def fine_tune(
       self,
@@ -349,7 +368,7 @@ class PyTorchFineTuner(model_base.FineTuner):
     )
 
     # Perform an initial validation run before training
-    tracker = _EarlyStoppingTracker()
+    tracker = _EarlyStoppingTracker(patience=self.patience)
     initial_val_loss = self._run_validation_epoch(valid_dl)
     tracker.update(initial_val_loss, self.model)
 

@@ -15,6 +15,7 @@
 """Tests for the PyTorch model."""
 
 import copy
+from typing import cast
 import numpy as np
 from regress_lm import core
 from regress_lm import tokenizers
@@ -177,6 +178,62 @@ class ModelTest(parameterized.TestCase):
     # --- Verification ---
     for p1, p2 in zip(model_base.parameters(), model_microbatch.parameters()):
       torch.testing.assert_close(p1, p2, atol=1e-7, rtol=1e-5)
+
+  def test_early_stopping_with_patience(self):
+
+    class MockFineTuner(pytorch_model.PyTorchFineTuner):
+      """Mock fine-tuner that allows us to control the validation losses."""
+
+      def __init__(self, validation_losses, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.validation_losses = validation_losses
+        self._val_loss_iter = iter(self.validation_losses)
+        self.training_epochs_run = 0
+        self.best_state_at_min_loss = None
+
+      def _run_training_epoch(self, *args, **kwargs):
+        self.training_epochs_run += 1
+
+      def _run_validation_epoch(self, *args, **kwargs) -> float:
+        loss = next(self._val_loss_iter)
+        if loss == min(self.validation_losses):
+          self.best_state_at_min_loss = copy.deepcopy(self.model.state_dict())
+        return loss
+
+    # Scenario: Loss improves, then gets worse for 3 epochs.
+    # The best loss is 5.0, which occurs after the 2nd training epoch.
+    validation_losses = [10.0, 8.0, 5.0, 6.0, 7.0, 8.0]
+
+    # We expect training to run for 4 epochs:
+    # - Epoch 1 (loss 8.0)
+    # - Epoch 2 (loss 5.0) -> Best loss, patience counter resets.
+    # - Epoch 3 (loss 6.0) -> No improvement, patience counter is 1.
+    # - Epoch 4 (loss 7.0) -> No improvement, patience counter is 2.
+    # `should_stop()` is now true, so the loop breaks before epoch 5.
+    expected_epochs_run = 4
+
+    mock_tuner = MockFineTuner(
+        validation_losses=validation_losses,
+        model=self.model,
+        optimizer=optim.Adafactor(
+            filter(lambda p: p.requires_grad, self.model.parameters()), lr=0.1
+        ),
+        max_epochs=10,  # High max_epochs to ensure early stopping is the cause.
+        patience=2,
+    )
+
+    mock_tuner.fine_tune([core.Example(x='hello', y=1.0)])  # Example not used.
+
+    # Training stops at right run.
+    self.assertEqual(mock_tuner.training_epochs_run, expected_epochs_run)
+
+    # Model state should be the best one that was found at epoch 2.
+    final_state = self.model.state_dict()
+    best_state = mock_tuner.best_state_at_min_loss
+    self.assertIsNotNone(best_state)
+    best_state = cast(dict[str, torch.Tensor], best_state)
+    for key in best_state:
+      torch.testing.assert_close(final_state[key], best_state[key])
 
 
 if __name__ == '__main__':
