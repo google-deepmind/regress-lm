@@ -12,15 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Base class for a RegressLM model."""
+"""Base classes relevant to a RegressLM model."""
 
 import abc
 from typing import Generic, Sequence, TypeVar
+
 import numpy as np
 from regress_lm import core
 
-# Low-level tensor type.
-TensorT = TypeVar('TensorT')
+TensorT = TypeVar('TensorT')  # Low-level tensor type.
+PredictionOutputT = TypeVar('PredictionOutputT')
 
 
 class Model(Generic[TensorT], abc.ABC):
@@ -85,3 +86,15 @@ class FineTuner(abc.ABC):
     Returns:
       None
     """
+
+
+class InferenceFn(Generic[PredictionOutputT], abc.ABC):
+  """Performs inference to collect some measurement.
+
+  Made very general to allow different inference techniques (sampling,
+  ranking, RAFT, etc.).
+  """
+
+  @abc.abstractmethod
+  def infer(self, inputs: Sequence[core.ExampleInput]) -> PredictionOutputT:
+    """Performs inference on model to collect some measurement."""

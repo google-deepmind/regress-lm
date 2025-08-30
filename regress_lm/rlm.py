@@ -20,9 +20,6 @@ from regress_lm import core
 from regress_lm import tokenizers
 from regress_lm import vocabs
 from regress_lm.models import base as model_base
-from regress_lm.models.pytorch import model as pytorch_model
-import torch
-from torch import optim
 
 
 class RegressLM:
@@ -43,6 +40,11 @@ class RegressLM:
   @classmethod
   def from_default(cls, device: str | None = None, **kwargs) -> "RegressLM":
     """Creates a RegressLM with default model and finetuner."""
+    # pylint: disable=g-import-not-at-top
+    import torch
+    from torch import optim
+    from regress_lm.models.pytorch import model as pytorch_model
+
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = pytorch_model.PyTorchModel(
         encoder_vocab=kwargs.get("encoder_vocab")
