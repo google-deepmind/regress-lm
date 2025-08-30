@@ -59,6 +59,7 @@ class T5gemmaModelTest(absltest.TestCase):
     self.assertAlmostEqual(log_probs[0].item(), -31.96981432)
     self.assertAlmostEqual(log_probs[1].item(), -25.88078117)
 
+  @absltest.skip("T5Gemma sometimes not up to date with HF")
   def test_decode(self):
     batch = self.model.convert_inputs(
         [core.ExampleInput(x="a s d"), core.ExampleInput(x="z x c")]

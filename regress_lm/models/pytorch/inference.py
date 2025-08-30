@@ -28,6 +28,8 @@ class RAFTInferenceFn(base.InferenceFn[Tensor]):
   """Performs RAFT inference to collect a single float.
 
   The mean can be estimated via sum_{y in Grid}[y * prob(y|x)].
+
+  NOTE: `infer` logic can also be used in training with a MSE loss.
   """
 
   def __init__(self, model: base.Model[Tensor], grid_points: Sequence[float]):
