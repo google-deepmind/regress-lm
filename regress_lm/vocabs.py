@@ -59,12 +59,16 @@ class DecoderVocab(BaseVocab[ObjectT]):
   objective.
   """
 
-  # TODO: Do we need multi-objective separator tokens (via BOS)?
-
-  def __init__(self, tokenizer: tokenizers.DecoderTokenizer[ObjectT]):
+  def __init__(
+      self,
+      tokenizer: tokenizers.DecoderTokenizer[ObjectT],
+      *,
+      pad_token: str = "<pad>",
+  ):
     self.tokenizer = tokenizer
+    self.pad_token = pad_token
 
-    self.itos = ["<pad>"] + sorted(self.tokenizer.all_tokens())
+    self.itos = [pad_token] + sorted(self.tokenizer.all_tokens())
     self.stoi = {token: i for i, token in enumerate(self.itos)}
 
   def to_token_ids(self, obj: ObjectT | Sequence[ObjectT], /) -> list[int]:
@@ -76,7 +80,7 @@ class DecoderVocab(BaseVocab[ObjectT]):
 
   def from_token_ids(self, token_ids: Sequence[int], /) -> list[ObjectT]:
     """Converts token ids to object."""
-    token_strs = [self.itos[id] for id in token_ids if id != self.bos_pad_id]
+    token_strs = [self.itos[id] for id in token_ids]
 
     if len(token_strs) % self.num_tokens_per_obj != 0:
       raise ValueError("Tokens not a multiple of tokens per object.")
@@ -104,7 +108,7 @@ class DecoderVocab(BaseVocab[ObjectT]):
   @property
   def bos_pad_id(self) -> int:
     """Returns the BOS / PAD id for the decoder."""
-    return self.stoi["<pad>"]
+    return self.stoi[self.pad_token]
 
   @property
   def num_tokens_per_obj(self) -> int:

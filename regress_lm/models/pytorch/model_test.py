@@ -33,7 +33,8 @@ class ModelTest(parameterized.TestCase):
     super().setUp()
     torch.manual_seed(42)
     self.encoder_vocab = vocabs.BasicEnglishVocab(['hello', 'world'])
-    self.decoder_vocab = vocabs.DecoderVocab(tokenizers.P10Tokenizer())
+    self.decoder_tokenizer = tokenizers.P10Tokenizer()
+    self.decoder_vocab = vocabs.DecoderVocab(self.decoder_tokenizer)
     self.architecture_kwargs = dict(
         d_model=16,
         num_encoder_layers=1,
@@ -124,23 +125,32 @@ class ModelTest(parameterized.TestCase):
     np.testing.assert_array_equal(decoded_ids[0, 0], [36, 36, 36, 36, 36, 36])
     np.testing.assert_array_equal(decoded_ids[0, 1], [1, 4, 9, 4, 7, 33])
 
-  def test_multiobjective(self):
+  @parameterized.parameters(True, False)
+  def test_multiobjective(self, add_separators: bool):
+    tokenizer = self.decoder_tokenizer
+    if add_separators:
+      tokenizer = tokenizers.AppendPadTokenizer(tokenizer)
+
     model = pytorch_model.PyTorchModel(
         encoder_vocab=self.encoder_vocab,
-        decoder_vocab=self.decoder_vocab,
+        decoder_vocab=vocabs.DecoderVocab(tokenizer),
         max_input_len=4,
         max_num_objs=2,
         compile_model=False,
         **self.architecture_kwargs,
     )
-    self.assertEqual(model.decode_len, 12)
 
     examples = [core.ExampleInput(x='hello'), core.ExampleInput(x='world')]
     batch = model.convert_inputs(examples)
 
     decoded_ids, output_floats = model.decode(batch, num_samples=1024)
-    # Now 12 = 2 objectives * 6 tokens per objective.
-    self.assertEqual(tuple(decoded_ids.shape), (2, 1024, 12))
+    if not add_separators:  # 12 = 2 objectives * 6 tokens per objective.
+      self.assertEqual(tuple(decoded_ids.shape), (2, 1024, 12))
+      self.assertEqual(model.decode_len, 12)
+    else:  # +2 for padding/separators.
+      self.assertEqual(tuple(decoded_ids.shape), (2, 1024, 14))
+      self.assertEqual(model.decode_len, 14)
+
     # Now 2 objectives for last axis.
     self.assertEqual(tuple(output_floats.shape), (2, 1024, 2))
 

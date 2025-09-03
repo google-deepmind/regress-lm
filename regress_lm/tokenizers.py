@@ -401,3 +401,39 @@ class AddSpecialValues(DecoderTokenizer[str | float]):
     if token in self.SPECIAL_VALUE_MAP:
       return self.SPECIAL_VALUE_MAP[token]
     return self._tokenizer.from_tokens(tokens)
+
+
+class AppendPadTokenizer(DecoderTokenizer[ObjectT]):
+  """Wraps a tokenizer to append a <pad> token after each object.
+
+  This is a simple way to create a separator for multi-objective tasks. Note
+  our model will mask out any <pad> tokens when training.
+  """
+
+  def __init__(
+      self, tokenizer: DecoderTokenizer[ObjectT], *, pad_token: str = '<pad>'
+  ):
+    self.tokenizer = tokenizer
+    self.pad_token = pad_token
+
+  @property
+  def num_tokens_per_obj(self) -> int:
+    return self.tokenizer.num_tokens_per_obj + 1
+
+  def all_tokens(self) -> OrderedSet[str]:
+    return self.tokenizer.all_tokens()  # '<pad>' is not included.
+
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    if len(prev_tokens) >= self.num_tokens_per_obj:
+      raise ValueError(f'Index {len(prev_tokens)} out of bounds.')
+    if len(prev_tokens) == self.num_tokens_per_obj - 1:  # Last position.
+      return OrderedSet([self.pad_token])
+    return self.tokenizer.possible_next_tokens(prev_tokens)  # Normal case.
+
+  def to_tokens(self, obj: ObjectT, /) -> list[str]:
+    return self.tokenizer.to_tokens(obj) + [self.pad_token]
+
+  def from_tokens(self, tokens: list[str], /) -> ObjectT:
+    if not tokens or tokens[-1] != self.pad_token:
+      raise ValueError(f'Expected a "{self.pad_token}" token at the end.')
+    return self.tokenizer.from_tokens(tokens[:-1])

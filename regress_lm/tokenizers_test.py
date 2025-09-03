@@ -262,5 +262,51 @@ class AddSpecialValuesTest(parameterized.TestCase):
     )
 
 
+class AppendPadTokenizerTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    # Use a simple base tokenizer for clarity
+    self.base_tokenizer = tokenizers.P10Tokenizer(
+        num_digits=2, exponent_range=1
+    )
+    self.tokenizer = tokenizers.AppendPadTokenizer(self.base_tokenizer)
+
+  def test_to_tokens_appends_pad(self):
+    wrapped_tokens = self.tokenizer.to_tokens(12.0)
+    self.assertEqual(wrapped_tokens, ['<+>', '<1>', '<2>', '<E0>', '<pad>'])
+
+  def test_from_tokens_strips_pad(self):
+    tokens_with_pad = ['<+>', '<1>', '<2>', '<E0>', '<pad>']
+    self.assertAlmostEqual(self.tokenizer.from_tokens(tokens_with_pad), 12.0)
+
+    # Fails if the pad token is missing
+    tokens_without_pad = ['<+>', '<1>', '<2>', '<E0>']
+    with self.assertRaisesRegex(ValueError, 'Expected a "<pad>" token'):
+      self.tokenizer.from_tokens(tokens_without_pad)
+
+  def test_possible_next_tokens(self):
+    # No change at start or middle.
+    self.assertEqual(
+        self.tokenizer.possible_next_tokens([]),
+        self.base_tokenizer.possible_next_tokens([]),
+    )
+    self.assertEqual(
+        self.tokenizer.possible_next_tokens(['<+>']),
+        self.base_tokenizer.possible_next_tokens(['<+>']),
+    )
+
+    # Final position should only be pad.
+    end_of_base_tokens = ['<+>', '<1>', '<2>', '<E1>']
+    self.assertEqual(
+        self.tokenizer.possible_next_tokens(end_of_base_tokens),
+        tokenizers.OrderedSet(['<pad>']),
+    )
+
+    # Check out of bounds.
+    with self.assertRaises(ValueError):
+      self.tokenizer.possible_next_tokens(end_of_base_tokens + ['<pad>'])
+
+
 if __name__ == '__main__':
   absltest.main()
