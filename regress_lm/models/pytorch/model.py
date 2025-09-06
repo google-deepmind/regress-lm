@@ -97,7 +97,11 @@ class PyTorchModel(nn.Module, model_base.Model[Tensor]):
         ignore_index=self.decoder_vocab.bos_pad_id,
         reduction='none',
     )
-    loss_per_example = ce_loss_per_tokens.sum(dim=1)
+
+    # Average loss per non-padded token.
+    loss_mask = (targets != self.decoder_vocab.bos_pad_id).float()
+    num_tokens = loss_mask.sum(dim=1).clamp(min=1)
+    loss_per_example = ce_loss_per_tokens.sum(dim=1) / num_tokens
 
     if self.z_loss_coef is not None:
       log_z = torch.logsumexp(logits, dim=-1)

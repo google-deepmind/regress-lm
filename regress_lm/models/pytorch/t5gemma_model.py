@@ -86,7 +86,13 @@ class T5GemmaModel(nn.Module, model_base.Model[Tensor]):
         ignore_index=IGNORE_TOKEN_ID,
         reduction='none',
     )
-    loss_per_example = loss_per_token.view(labels.shape).sum(dim=1)
+
+    loss_per_token_reshaped = loss_per_token.view(labels.shape)
+    sum_loss_per_example = loss_per_token_reshaped.sum(dim=1)
+
+    # Average loss per non-padded token.
+    num_tokens = (labels != IGNORE_TOKEN_ID).sum(dim=1).clamp(min=1)
+    loss_per_example = sum_loss_per_example / num_tokens
 
     metrics = {'loss_mean': loss_per_example.mean().detach()}
     return loss_per_example, metrics

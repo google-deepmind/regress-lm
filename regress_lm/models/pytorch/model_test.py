@@ -87,6 +87,28 @@ class ModelTest(parameterized.TestCase):
     log_probs_after = self.model.log_prob(examples_tensors)
     self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -18.11, 1)
 
+  def test_compute_losses_and_metrics(self):
+    """Verifies the exact output of the loss calculation."""
+    raw_examples = [
+        core.Example(x='hello', y=1.0),
+        core.Example(x='world', y=10000.0),
+    ]
+    examples_tensors = self.model.convert_examples(raw_examples)
+
+    self.model.eval()
+    with torch.no_grad():
+      losses_per_example, metrics = self.model.compute_losses_and_metrics(
+          examples_tensors
+      )
+
+    # Check the per-example loss (mean over tokens)
+    self.assertEqual(losses_per_example.shape, (2,))
+    self.assertAlmostEqual(losses_per_example[0].item(), 4.4897, 3)
+    self.assertAlmostEqual(losses_per_example[1].item(), 4.6910, 3)
+
+    # Check the overall batch loss metric
+    self.assertAlmostEqual(metrics['loss_mean'].item(), 4.5903, 3)
+
   def test_decode(self):
     raw_example = [core.Example(x='hello', y=2.123)]
     batch = self.model.convert_examples(raw_example)

@@ -38,7 +38,7 @@ class Model(Generic[TensorT], abc.ABC):
   def compute_losses_and_metrics(
       self, examples: dict[str, TensorT]
   ) -> tuple[TensorT, dict[str, TensorT]]:
-    """Computes per example loss and aggregate metrics for given examples."""
+    """Computes per example loss and aggregate metrics."""
 
   @abc.abstractmethod
   def decode(
