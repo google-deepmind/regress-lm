@@ -27,7 +27,7 @@ Get started by installing the core libraries:
 pip install -e .
 ```
 
-To run the T5Gemma model, install additional libraries:
+To run e.g. T5Gemma variants, install additional libraries:
 
 ```
 pip install ".[extras]"
@@ -114,7 +114,14 @@ samples = reg_lm.sample([core.ExampleInput(x='hi')], num_samples=128)[0]
 ```
 
 ### Pretrained Third-Party Models
-[T5Gemma](https://developers.googleblog.com/en/t5gemma/) is supported:
+[T5Gemma](https://developers.googleblog.com/en/t5gemma/) frozen encoder + our
+default decoder is supported:
+
+```python
+reg_lm = rlm.RegressLM.from_t5gemma_encoder('google/t5gemma-s-s-prefixlm')
+```
+
+End-to-end T5Gemma is also supported:
 
 ```python
 from regress_lm.models.pytorch import t5gemma_model

@@ -79,13 +79,13 @@ class ModelTest(parameterized.TestCase):
     examples_tensors = self.model.convert_examples(raw_examples)
     log_probs_before = self.model.log_prob(examples_tensors)
     self.assertEqual(log_probs_before.shape, (2,))
-    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -26.93, 1)
+    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -26.32, 1)
 
     # Update the model. Logprob should improve.
     self.fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -18.11, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -16.44, 1)
 
   def test_compute_losses_and_metrics(self):
     """Verifies the exact output of the loss calculation."""
@@ -103,11 +103,11 @@ class ModelTest(parameterized.TestCase):
 
     # Check the per-example loss (mean over tokens)
     self.assertEqual(losses_per_example.shape, (2,))
-    self.assertAlmostEqual(losses_per_example[0].item(), 4.4897, 3)
-    self.assertAlmostEqual(losses_per_example[1].item(), 4.6910, 3)
+    self.assertAlmostEqual(losses_per_example[0].item(), 4.3871, 3)
+    self.assertAlmostEqual(losses_per_example[1].item(), 4.8679, 3)
 
     # Check the overall batch loss metric
-    self.assertAlmostEqual(metrics['loss_mean'].item(), 4.5903, 3)
+    self.assertAlmostEqual(metrics['loss_mean'].item(), 4.6275, 3)
 
   def test_decode(self):
     raw_example = [core.Example(x='hello', y=2.123)]
@@ -119,16 +119,16 @@ class ModelTest(parameterized.TestCase):
     # 1 example, 1024 samples, 1 objective total.
     self.assertEqual(tuple(output_floats.shape), (1, 1024, 1))
 
-    self.assertAlmostEqual(output_floats[0, 0], -0.2398)
-    self.assertAlmostEqual(output_floats[0, 1], -230200000.0)
+    self.assertAlmostEqual(output_floats[0, 0, 0], 0.2898)
+    self.assertAlmostEqual(output_floats[0, 1, 0], -230800000.0)
 
-    self.assertAlmostEqual(np.median(output_floats), -0.00031275)
+    self.assertAlmostEqual(np.median(output_floats), 8.9185e-05)
 
     # After updating, the median should get closer to target y.
     self.fine_tuner.fine_tune(raw_example, seed=42)
 
     _, output_floats = self.model.decode(batch, num_samples=128)
-    self.assertAlmostEqual(np.median(output_floats), 2.2935)
+    self.assertAlmostEqual(np.median(output_floats), 1.4027)
 
   def test_decode_special_tokens(self):
     tokenizer = tokenizers.AddSpecialValues(tokenizers.P10Tokenizer())
@@ -139,13 +139,18 @@ class ModelTest(parameterized.TestCase):
         compile_model=False,
         **self.architecture_kwargs,
     )
-    batch = model.convert_examples(
-        [core.Example(x='hello', y=float('-inf')), core.Example(x='bye', y=1.0)]
-    )
+    examples = [
+        core.Example(x='hello', y=float('-inf')),
+        core.Example(x='bye', y=float('-inf')),
+    ]
+
+    # Update the model. More likely to decode special tokens.
+    self.fine_tuner.fine_tune(examples, seed=42)
+    batch = model.convert_examples(examples)
     decoded_ids, _ = model.decode(batch, num_samples=5)
 
-    np.testing.assert_array_equal(decoded_ids[0, 0], [36, 36, 36, 36, 36, 36])
-    np.testing.assert_array_equal(decoded_ids[0, 1], [1, 4, 9, 4, 7, 33])
+    np.testing.assert_array_equal(decoded_ids[0, 0], [37, 37, 37, 37, 37, 37])
+    np.testing.assert_array_equal(decoded_ids[0, 1], [2, 5, 11, 5, 8, 31])
 
   @parameterized.parameters(True, False)
   def test_multiobjective(self, add_separators: bool):

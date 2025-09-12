@@ -15,7 +15,7 @@
 """Default PyTorch architecture for a RegressLM."""
 
 import math
-from typing import Any, Literal
+from typing import Any
 from regress_lm.models.pytorch import encoders
 import torch
 from torch import nn
@@ -61,16 +61,16 @@ class EncoderDecoder(nn.Module):
       num_encoder_layers: int,
       num_decoder_layers: int,
       # encoder args
-      encoder_type: Literal["vanilla", "mamba"] = "vanilla",
+      encoder_type: str = "vanilla",
       additional_encoder_kwargs: dict[str, Any] | None = None,
   ):
     super().__init__()
     self.encoder_pad_idx = encoder_pad_idx
-    self.src_tok_emb = nn.Embedding(encoder_vocab_size, d_model)
     self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, d_model)
 
     self.encoder = encoders.get_encoder(
         encoder_type,
+        vocab_size=encoder_vocab_size,
         d_model=d_model,
         max_encoder_len=max_encoder_len,
         num_layers=num_encoder_layers,
@@ -102,10 +102,7 @@ class EncoderDecoder(nn.Module):
     src_padding_mask = src == self.encoder_pad_idx
 
     with nn.attention.sdpa_kernel(SPD_BACKENDS):  # Flash attention
-      memory = self.encoder(
-          self.src_tok_emb(src),
-          src_key_padding_mask=src_padding_mask,
-      )
+      memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
       decoder_output = self.decoder(
           tgt=self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input)),
           memory=memory,
@@ -117,9 +114,8 @@ class EncoderDecoder(nn.Module):
   def encode(self, src: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Encodes the source sequence."""
     src_padding_mask = src == self.encoder_pad_idx
-    src_emb = self.src_tok_emb(src)
     with nn.attention.sdpa_kernel(SPD_BACKENDS):  # Flash attention
-      memory = self.encoder(src_emb, src_key_padding_mask=src_padding_mask)
+      memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
     return memory, src_padding_mask
 
   def next_token_logits(

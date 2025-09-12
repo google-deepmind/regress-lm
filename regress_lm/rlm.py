@@ -73,6 +73,46 @@ class RegressLM:
     )
     return cls(model, fine_tuner)
 
+  @classmethod
+  def from_t5gemma_encoder(
+      cls,
+      model_name: str = "google/t5gemma-s-s-prefixlm",
+      device: str | None = None,
+      **kwargs
+  ) -> "RegressLM":
+    """Frozen T5Gemma encoder w/ custom decoder."""
+    # pylint: disable=g-import-not-at-top
+    import torch
+    from torch import optim
+    from regress_lm.models.pytorch import model as pytorch_model
+
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    model = pytorch_model.PyTorchModel(
+        encoder_vocab=vocabs.HuggingFaceVocab(model_name),
+        decoder_vocab=kwargs.get("decoder_vocab")
+        or vocabs.DecoderVocab(tokenizers.P10Tokenizer()),
+        max_input_len=kwargs.get("max_input_len", 2048),
+        max_num_objs=kwargs.get("max_num_objs", 1),
+        compile_model=kwargs.get("compile_model", True),
+        d_model=kwargs.get("d_model", 512),
+        num_encoder_layers=0,  # Dummy value, will be ignored.
+        num_decoder_layers=kwargs.get("num_decoder_layers", 2),
+        encoder_type=kwargs.get("encoder_type", "t5gemma"),
+        additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
+    ).to(device)
+
+    optimizer = kwargs.get("optimizer", None) or optim.Adafactor(
+        filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4
+    )
+    fine_tuner = pytorch_model.PyTorchFineTuner(
+        model,
+        optimizer=optimizer,
+        max_epochs=kwargs.get("max_epochs", 100),
+        batch_size=kwargs.get("batch_size", None),
+        batch_size_per_device=kwargs.get("batch_size_per_device", None),
+    )
+    return cls(model, fine_tuner)
+
   def sample(
       self, xs: Sequence[core.ExampleInput], num_samples: int
   ) -> Sequence[np.ndarray]:

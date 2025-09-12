@@ -19,6 +19,7 @@ import pathlib
 from typing import Generic, Sequence, TypeVar
 from regress_lm import tokenizers
 import tokenizers as ht
+import transformers
 import sentencepiece as spp
 import sentencepiece as spt
 
@@ -266,3 +267,22 @@ class SentencePieceVocab(EncoderVocab[str]):
     cmd = " ".join(f"--{k}={v}" for k, v in trainer_args.items())
     spt.SentencePieceTrainer.Train(cmd)
     return cls(str(model_prefix) + ".model")
+
+
+class HuggingFaceVocab(EncoderVocab[str]):
+  """An EncoderVocab that wraps HuggingFace."""
+
+  def __init__(self, model_name: str, **tokenizer_kwargs):
+    self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+        model_name, **tokenizer_kwargs
+    )
+
+  def to_token_ids(self, obj: str, /) -> list[int]:
+    return self.tokenizer.encode(obj)
+
+  @property
+  def pad_id(self) -> int:
+    return self.tokenizer.pad_token_id
+
+  def __len__(self) -> int:
+    return len(self.tokenizer)

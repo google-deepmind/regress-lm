@@ -30,12 +30,19 @@ class PerformerEncoderTest(parameterized.TestCase):
     batch_size = 4
     seq_len = 50
     d_model = 16
+    vocab_size = 100
 
-    src_emb = torch.randn(batch_size, seq_len, d_model)
-    encoder = encoders.PerformerEncoder(
-        d_model=d_model, num_layers=2, kernel_name=kernel_name  # pytype: disable=wrong-arg-types
+    src_ids = torch.randint(
+        0, vocab_size, (batch_size, seq_len), dtype=torch.long
     )
-    output = encoder(src_emb, src_key_padding_mask=None)
+
+    encoder = encoders.PerformerEncoder(
+        vocab_size=vocab_size,
+        d_model=d_model,
+        num_layers=2,
+        kernel_name=kernel_name,  # pytype: disable=wrong-arg-types
+    )
+    output = encoder(src_ids, src_key_padding_mask=None)
 
     self.assertEqual(output.shape, (batch_size, seq_len, d_model))
     self.assertFalse(
@@ -50,23 +57,29 @@ class PerformerEncoderTest(parameterized.TestCase):
     batch_size = 2
     max_seq_len = 10
     d_model = 16
+    vocab_size = 100
+    pad_id = 0
 
     torch.manual_seed(42)
-    seq1 = torch.randn(1, 5, d_model)  # Length 5
-    seq2 = torch.randn(1, 8, d_model)  # Length 8
+    seq1_ids = torch.randint(1, vocab_size, (1, 5))
+    seq2_ids = torch.randint(1, vocab_size, (1, 8))
 
-    encoder = encoders.PerformerEncoder(d_model=d_model, num_layers=2)
+    encoder = encoders.PerformerEncoder(
+        vocab_size=vocab_size, d_model=d_model, num_layers=2
+    )
 
     # --- Run without padding (the ground truth) ---
     with torch.no_grad():
-      output1_unpadded = encoder(seq1, src_key_padding_mask=None)
-      output2_unpadded = encoder(seq2, src_key_padding_mask=None)
+      output1_unpadded = encoder(seq1_ids, src_key_padding_mask=None)
+      output2_unpadded = encoder(seq2_ids, src_key_padding_mask=None)
 
     # --- Run with padding ---
-    # Now, we combine them into a single batch, padding seq1 to the max length.
-    padded_src_emb = torch.zeros(batch_size, max_seq_len, d_model)
-    padded_src_emb[0, :5, :] = seq1
-    padded_src_emb[1, :8, :] = seq2
+    # Now, we combine them into a single batch, padding to the max length.
+    padded_src_ids = torch.full(
+        (batch_size, max_seq_len), pad_id, dtype=torch.long
+    )
+    padded_src_ids[0, :5] = seq1_ids
+    padded_src_ids[1, :8] = seq2_ids
 
     # Create the corresponding padding mask (True where it's padded)
     src_key_padding_mask = torch.tensor(
@@ -78,7 +91,7 @@ class PerformerEncoderTest(parameterized.TestCase):
     )
 
     with torch.no_grad():
-      output_padded = encoder(padded_src_emb, src_key_padding_mask)
+      output_padded = encoder(padded_src_ids, src_key_padding_mask)
 
     # Check that the output for the non-padded parts is very close to the
     # unpadded runs. Due to floating point math, a small tolerance is needed.
@@ -209,6 +222,35 @@ class FavorAttentionTest(parameterized.TestCase):
         "Mismatch on non-padded token. \nFavor:"
         f" {favorplus_result[:, 0, ...]} \nExact: {exact_result[:, 0, ...]}",
     )
+
+
+class T5GemmaEncoderTest(parameterized.TestCase):
+  """Tests for the T5GemmaEncoder wrapper."""
+
+  def test_forward_shape_and_no_nans(self):
+    """Tests that the T5Gemma encoder output has the correct shape."""
+    batch_size = 2
+    seq_len = 20
+    d_model = 512  # For "google/t5gemma-s-s-prefixlm"
+
+    src_ids = torch.randint(0, 1000, (batch_size, seq_len), dtype=torch.long)
+
+    # Create a padding mask (True for padded tokens).
+    src_key_padding_mask = torch.zeros(batch_size, seq_len, dtype=torch.bool)
+    src_key_padding_mask[0, 15:] = True
+    src_key_padding_mask[1, 18:] = True
+
+    encoder = encoders.T5GemmaEncoder()
+
+    # --- 1. Test with padding mask ---
+    output = encoder(src_ids, src_key_padding_mask)
+    self.assertEqual(output.shape, (batch_size, seq_len, d_model))
+    self.assertFalse(torch.isnan(output).any())
+
+    # --- 2. Test without padding mask ---
+    output = encoder(src_ids, src_key_padding_mask=None)
+    self.assertEqual(output.shape, (batch_size, seq_len, d_model))
+    self.assertFalse(torch.isnan(output).any())
 
 
 if __name__ == "__main__":

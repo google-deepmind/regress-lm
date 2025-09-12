@@ -14,21 +14,22 @@
 
 """Different encoder types."""
 
-# pylint: disable=g-import-not-at-top
 import abc
 import copy
 import functools
 import math
 from typing import Callable, Literal
+from absl import logging
+import torch
+from torch import nn
+from torch.nn import functional as F
+import transformers
 
+# pylint: disable=g-import-not-at-top
 try:
   import mamba_ssm  # pytype: disable=import-error
 except ImportError:
   mamba_ssm = None
-
-import torch
-from torch import nn
-from torch.nn import functional as F
 
 
 class BaseEncoder(nn.Module, abc.ABC):
@@ -36,12 +37,12 @@ class BaseEncoder(nn.Module, abc.ABC):
 
   @abc.abstractmethod
   def forward(
-      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
   ) -> torch.Tensor:
     """Encodes the source sequence.
 
     Args:
-        src: The input tensor (already embedded).
+        src_ids: The input tensor of token ids.
         src_key_padding_mask: The padding mask for the source tensor.
 
     Returns:
@@ -202,6 +203,7 @@ class VanillaEncoder(BaseEncoder):
 
   def __init__(
       self,
+      vocab_size: int,
       d_model: int,
       num_layers: int,
       max_len: int,
@@ -210,6 +212,7 @@ class VanillaEncoder(BaseEncoder):
       dropout: float = 0.0,
   ):
     super().__init__()
+    self.embedding = nn.Embedding(vocab_size, d_model)
     self.rotary_pos_emb = _RotaryPositionalEmbedding(
         d_model // nhead, max_len=max_len
     )
@@ -224,10 +227,10 @@ class VanillaEncoder(BaseEncoder):
     self.norm = nn.LayerNorm(d_model)
 
   def forward(
-      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
   ) -> torch.Tensor:
     """Forward pass conforms to the BaseEncoder interface."""
-    output = src
+    output = self.embedding(src_ids)
     for mod in self.layers:
       output = mod(
           output, self.rotary_pos_emb, src_key_padding_mask=src_key_padding_mask
@@ -238,9 +241,11 @@ class VanillaEncoder(BaseEncoder):
 class MambaEncoder(BaseEncoder):
   """Encoder built from a stack of Mamba blocks."""
 
-  def __init__(self, d_model: int, num_layers: int, **mamba_kwargs):
+  def __init__(
+      self, vocab_size: int, d_model: int, num_layers: int, **mamba_kwargs
+  ):
     super().__init__()
-
+    self.embedding = nn.Embedding(vocab_size, d_model)
     self.layers = nn.ModuleList([
         nn.Sequential(
             nn.LayerNorm(d_model),
@@ -251,9 +256,9 @@ class MambaEncoder(BaseEncoder):
     self.norm = nn.LayerNorm(d_model)
 
   def forward(
-      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
   ) -> torch.Tensor:
-    output = src
+    output = self.embedding(src_ids)
     for layer in self.layers:
       output = layer(output) + output  # Residual connection
 
@@ -489,6 +494,7 @@ class PerformerEncoder(BaseEncoder):
 
   def __init__(
       self,
+      vocab_size: int,
       d_model: int,
       num_layers: int,
       kernel_name: Literal["softmax", "relu"] = "relu",
@@ -498,6 +504,7 @@ class PerformerEncoder(BaseEncoder):
       dropout: float = 0.0,
   ):
     super().__init__()
+    self.embedding = nn.Embedding(vocab_size, d_model)
     layer = _PerformerEncoderLayer(
         d_model,
         nhead,
@@ -514,8 +521,9 @@ class PerformerEncoder(BaseEncoder):
     self.norm = nn.LayerNorm(d_model)
 
   def forward(
-      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
   ) -> torch.Tensor:
+    src = self.embedding(src_ids)
 
     if self.training and self.redraw_interval is not None:
       self.training_calls += 1
@@ -529,8 +537,41 @@ class PerformerEncoder(BaseEncoder):
     return self.norm(output)
 
 
+class T5GemmaEncoder(BaseEncoder):
+  """Wrapper around a Hugging Face T5Gemma encoder."""
+
+  def __init__(
+      self,
+      model_name: str = "google/t5gemma-s-s-prefixlm",
+      freeze_weights: bool = True,
+      attn_implementation: str = "eager",  # if Flash causes issues.
+  ):
+    super().__init__()
+
+    model = transformers.T5GemmaForConditionalGeneration.from_pretrained(  # pytype: disable=attribute-error
+        model_name, attn_implementation=attn_implementation
+    )
+    self.encoder = model.get_encoder()
+
+    if freeze_weights:
+      for param in self.encoder.parameters():
+        param.requires_grad = False
+
+  def forward(
+      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+  ) -> torch.Tensor:
+    attention_mask = (
+        ~src_key_padding_mask if src_key_padding_mask is not None else None
+    )
+    enc_out = self.encoder(
+        input_ids=src_ids, attention_mask=attention_mask, return_dict=True
+    )
+    return enc_out.last_hidden_state
+
+
 def get_encoder(
-    encoder_type: Literal["vanilla", "mamba", "performer"],
+    encoder_type: str,
+    vocab_size: int,
     d_model: int,
     num_layers: int,
     max_encoder_len: int,
@@ -540,6 +581,7 @@ def get_encoder(
 
   if encoder_type == "vanilla":
     return VanillaEncoder(
+        vocab_size=vocab_size,
         d_model=d_model,
         num_layers=num_layers,
         max_len=max_encoder_len,
@@ -547,12 +589,21 @@ def get_encoder(
     )
   elif encoder_type == "mamba":
     return MambaEncoder(
-        d_model=d_model, num_layers=num_layers, **encoder_kwargs
+        vocab_size=vocab_size,
+        d_model=d_model,
+        num_layers=num_layers,
+        **encoder_kwargs,
     )
   elif encoder_type == "performer":
     return PerformerEncoder(
-        d_model=d_model, num_layers=num_layers, **encoder_kwargs
+        vocab_size=vocab_size,
+        d_model=d_model,
+        num_layers=num_layers,
+        **encoder_kwargs,
     )
+  elif encoder_type == "t5gemma":
+    logging.info("NOTE: Pretrained T5Gemma requires using its specific vocab.")
+    return T5GemmaEncoder(**encoder_kwargs)
 
   else:
     raise ValueError(f"Unknown encoder_type: {encoder_type}")
