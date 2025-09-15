@@ -20,7 +20,7 @@ from absl.testing import absltest
 class RlmTest(absltest.TestCase):
 
   def test_demo(self):
-    reg_lm = rlm.RegressLM.from_default(
+    reg_lm = rlm.RegressLM.from_scratch(
         max_input_len=128,
         d_model=32,
         num_encoder_layers=1,

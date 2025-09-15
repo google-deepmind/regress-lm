@@ -19,13 +19,13 @@ import numpy as np
 from regress_lm import core
 from regress_lm import tokenizers
 from regress_lm import vocabs
-from regress_lm.models import base as model_base
+from regress_lm.models import base
 
 
 class RegressLM:
   """User-facing API for RegressLM."""
 
-  def __init__(self, model: model_base.Model, fine_tuner: model_base.FineTuner):
+  def __init__(self, model: base.Model, fine_tuner: base.FineTuner):
     self.model = model
     self.fine_tuner = fine_tuner
 
@@ -38,12 +38,13 @@ class RegressLM:
     self.fine_tuner.fine_tune(examples, validation_examples, seed=seed)
 
   @classmethod
-  def from_default(cls, device: str | None = None, **kwargs) -> "RegressLM":
+  def from_scratch(cls, device: str | None = None, **kwargs) -> "RegressLM":
     """Creates a RegressLM with default model and finetuner."""
     # pylint: disable=g-import-not-at-top
     import torch
     from torch import optim
     from regress_lm.models.pytorch import model as pytorch_model
+    from regress_lm.models.pytorch import fine_tuning as pytorch_fine_tuning
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = pytorch_model.PyTorchModel(
@@ -64,7 +65,7 @@ class RegressLM:
     optimizer = kwargs.get("optimizer", None) or optim.Adafactor(
         filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4
     )
-    fine_tuner = pytorch_model.PyTorchFineTuner(
+    fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
         model,
         optimizer=optimizer,
         max_epochs=kwargs.get("max_epochs", 100),
@@ -85,6 +86,7 @@ class RegressLM:
     import torch
     from torch import optim
     from regress_lm.models.pytorch import model as pytorch_model
+    from regress_lm.models.pytorch import fine_tuning as pytorch_fine_tuning
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = pytorch_model.PyTorchModel(
@@ -104,7 +106,7 @@ class RegressLM:
     optimizer = kwargs.get("optimizer", None) or optim.Adafactor(
         filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4
     )
-    fine_tuner = pytorch_model.PyTorchFineTuner(
+    fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
         model,
         optimizer=optimizer,
         max_epochs=kwargs.get("max_epochs", 100),

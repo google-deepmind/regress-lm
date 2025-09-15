@@ -20,7 +20,8 @@ import numpy as np
 from regress_lm import core
 from regress_lm import tokenizers
 from regress_lm import vocabs
-from regress_lm.models.pytorch import model as pytorch_model
+from regress_lm.models.pytorch import fine_tuning
+from regress_lm.models.pytorch import model as model_lib
 import torch
 from torch import optim
 from absl.testing import absltest
@@ -40,14 +41,14 @@ class ModelTest(parameterized.TestCase):
         num_encoder_layers=1,
         num_decoder_layers=1,
     )
-    self.model = pytorch_model.PyTorchModel(
+    self.model = model_lib.PyTorchModel(
         encoder_vocab=self.encoder_vocab,
         decoder_vocab=self.decoder_vocab,
         max_input_len=4,
         compile_model=False,
         **self.architecture_kwargs,
     )
-    self.fine_tuner = pytorch_model.PyTorchFineTuner(
+    self.fine_tuner = fine_tuning.PyTorchFineTuner(
         self.model,
         optimizer=optim.Adafactor(
             filter(lambda p: p.requires_grad, self.model.parameters()), lr=0.1
@@ -132,7 +133,7 @@ class ModelTest(parameterized.TestCase):
 
   def test_decode_special_tokens(self):
     tokenizer = tokenizers.AddSpecialValues(tokenizers.P10Tokenizer())
-    model = pytorch_model.PyTorchModel(
+    model = model_lib.PyTorchModel(
         encoder_vocab=self.encoder_vocab,
         decoder_vocab=vocabs.DecoderVocab(tokenizer),
         max_input_len=4,
@@ -158,7 +159,7 @@ class ModelTest(parameterized.TestCase):
     if add_separators:
       tokenizer = tokenizers.AppendPadTokenizer(tokenizer)
 
-    model = pytorch_model.PyTorchModel(
+    model = model_lib.PyTorchModel(
         encoder_vocab=self.encoder_vocab,
         decoder_vocab=vocabs.DecoderVocab(tokenizer),
         max_input_len=4,
@@ -184,7 +185,7 @@ class ModelTest(parameterized.TestCase):
   def test_gradient_accumulation_equivalence(self):
     torch.manual_seed(123)
 
-    model_base = pytorch_model.PyTorchModel(
+    model_base = model_lib.PyTorchModel(
         encoder_vocab=self.encoder_vocab,
         decoder_vocab=self.decoder_vocab,
         max_input_len=4,
@@ -194,12 +195,12 @@ class ModelTest(parameterized.TestCase):
     model_microbatch = copy.deepcopy(model_base)
     model_microbatch.load_state_dict(model_base.state_dict())
 
-    fine_tuner_base = pytorch_model.PyTorchFineTuner(
+    fine_tuner_base = fine_tuning.PyTorchFineTuner(
         model=model_base,
         optimizer=optim.Adafactor(model_base.parameters(), lr=1e-4),
         max_epochs=1,
     )
-    fine_tuner_microbatch = pytorch_model.PyTorchFineTuner(
+    fine_tuner_microbatch = fine_tuning.PyTorchFineTuner(
         model=model_microbatch,
         optimizer=optim.Adafactor(model_microbatch.parameters(), lr=1e-4),
         max_epochs=1,
@@ -218,7 +219,7 @@ class ModelTest(parameterized.TestCase):
 
   def test_early_stopping_with_patience(self):
 
-    class MockFineTuner(pytorch_model.PyTorchFineTuner):
+    class MockFineTuner(fine_tuning.PyTorchFineTuner):
       """Mock fine-tuner that allows us to control the validation losses."""
 
       def __init__(self, validation_losses, *args, **kwargs):

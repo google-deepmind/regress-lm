@@ -45,8 +45,8 @@ data.
 from regress_lm import core
 from regress_lm import rlm
 
-# Create RegressLM with max input token length.
-reg_lm = rlm.RegressLM.from_default(max_input_len=2048)
+# Create RegressLM from scratch. Optionally, use `from_t5gemma_encoder`.
+reg_lm = rlm.RegressLM.from_scratch(max_input_len=2048)
 
 # Example (x,y) pairs, which can be fine-tuned against.
 examples = [core.Example(x='hello', y=0.3), core.Example(x='world', y=-0.3)]
@@ -103,7 +103,7 @@ The RLM can decode a concatenated sequence of tokens too, for multi-objective
 regression:
 
 ```python
-reg_lm = rlm.RegressLM.from_default(max_num_objs=2)
+reg_lm = rlm.RegressLM.from_scratch(max_num_objs=2)
 
 # Examples can have variable objective lengths.
 examples = [core.Example(x='hello', y=[0.2]), core.Example(x='world', y=[-0.2, 0.3])]
