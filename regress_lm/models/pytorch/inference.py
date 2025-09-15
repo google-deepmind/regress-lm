@@ -19,7 +19,7 @@ from typing import Sequence
 from regress_lm import core
 from regress_lm.models import base
 import torch
-
+import torch.nn.functional as F
 
 Tensor = torch.Tensor
 
@@ -45,11 +45,12 @@ class RAFTInferenceFn(base.InferenceFn[Tensor]):
 
     # Convert and run the model on the entire batch in a single forward pass
     # This batch will have a size of (L_inputs * L_grid_points)
+    # TODO: Parallelize example conversion.
     grid_batch = self.model.convert_examples(all_grid_examples)
-    log_probs = self.model.log_prob(grid_batch)
 
-    probs = torch.exp(log_probs)
-    probs_reshaped = probs.view(len(inputs), len(self.grid_points))
+    log_probs = self.model.log_prob(grid_batch)
+    log_probs = log_probs.view(len(inputs), len(self.grid_points))
+    probs = F.softmax(log_probs, dim=-1)
 
     # Ensure grid_points is a tensor on the correct device
     grid_points_tensor = torch.tensor(
@@ -58,4 +59,4 @@ class RAFTInferenceFn(base.InferenceFn[Tensor]):
 
     # Compute the weighted average for each input using matrix multiplication
     # This is equivalent to a batched dot product
-    return torch.matmul(probs_reshaped, grid_points_tensor)
+    return torch.matmul(probs, grid_points_tensor)
