@@ -58,15 +58,15 @@ class T5GemmaModel(nn.Module, model_base.Model[Tensor]):
     self.max_input_len = max_input_len
     self.max_decode_len = max_decode_len
 
-    self.x_to_str_fn = x_to_str_fn
-    self.y_to_str_fn = y_to_str_fn
-
     self.model = transformers.T5GemmaForConditionalGeneration.from_pretrained(
         model_name, **(model_kwargs or {})
     )
     self.tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name, **(tokenizer_kwargs or {})
     )
+
+    self.x_to_str_fn = x_to_str_fn
+    self.y_to_str_fn = lambda y: y_to_str_fn(y) + self.tokenizer.eos_token
 
   def compute_losses_and_metrics(
       self, examples: dict[str, Tensor]
@@ -146,7 +146,11 @@ class T5GemmaModel(nn.Module, model_base.Model[Tensor]):
     labels = examples['labels']
 
     log_sm = F.log_softmax(outputs.logits, dim=-1)  # (B, L, V)
-    log_probs = torch.gather(log_sm, 2, labels.unsqueeze(-1))  # (B, L, 1)
+
+    # .clamp(min=0) changes all negative values (-100 pad) to 0, which is a safe
+    # index.
+    safe_labels = labels.clamp(min=0)
+    log_probs = torch.gather(log_sm, 2, safe_labels.unsqueeze(-1))  # (B, L, 1)
     log_probs = log_probs.squeeze(-1)  # (B, L)
 
     mask = (labels != IGNORE_TOKEN_ID).float()  # (B, L)
