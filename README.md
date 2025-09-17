@@ -119,7 +119,7 @@ samples = reg_lm.sample([core.ExampleInput(x='hi')], num_samples=128)[0]
 default decoder is supported:
 
 ```python
-reg_lm = rlm.RegressLM.from_t5gemma_encoder('google/t5gemma-s-s-prefixlm')
+model = PyTorchModel(encoder_type=EncoderType.T5GEMMA)
 ```
 
 End-to-end T5Gemma is also supported:
@@ -134,8 +134,8 @@ To support 100K+ input token lengths, alternative encoders (e.g.
 [`mamba-ssm`](https://github.com/state-spaces/mamba) and [Performer](https://research.google/blog/rethinking-attention-with-performers/)) are supported:
 
 ```python
-model = PyTorchModel(encoder_type='mamba', additional_encoder_kwargs={'d_state': 128})
-model = PyTorchModel(encoder_type='performer', additional_encoder_kwargs={'num_features': 256})
+model = PyTorchModel(encoder_type=EncoderType.MAMBA, additional_encoder_kwargs={'d_state': 128})
+model = PyTorchModel(encoder_type=EncoderType.PERFORMER, additional_encoder_kwargs={'num_features': 256})
 ```
 
 ## Contributors and Citation <a name="citing"></a>
