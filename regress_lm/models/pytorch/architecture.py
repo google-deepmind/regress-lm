@@ -61,15 +61,13 @@ class EncoderDecoder(nn.Module):
       num_encoder_layers: int,
       num_decoder_layers: int,
       # encoder args
-      encoder_type: str = "vanilla",
+      encoder_type: encoders.EncoderType = encoders.EncoderType.VANILLA,
       additional_encoder_kwargs: dict[str, Any] | None = None,
   ):
     super().__init__()
     self.encoder_pad_idx = encoder_pad_idx
     self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, d_model)
-
-    self.encoder = encoders.get_encoder(
-        encoder_type,
+    self.encoder = encoder_type.make(
         vocab_size=encoder_vocab_size,
         d_model=d_model,
         max_encoder_len=max_encoder_len,

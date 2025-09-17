@@ -45,6 +45,7 @@ class RegressLM:
     from torch import optim
     from regress_lm.models.pytorch import model as pytorch_model
     from regress_lm.models.pytorch import fine_tuning as pytorch_fine_tuning
+    from regress_lm.models.pytorch import encoders
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = pytorch_model.PyTorchModel(
@@ -58,7 +59,7 @@ class RegressLM:
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=kwargs.get("num_encoder_layers", 2),
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
-        encoder_type=kwargs.get("encoder_type", "vanilla"),
+        encoder_type=kwargs.get("encoder_type", encoders.EncoderType.VANILLA),
         additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
     ).to(device)
 
@@ -71,6 +72,7 @@ class RegressLM:
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),
+        patience=kwargs.get("patience", 1),
     )
     return cls(model, fine_tuner)
 
@@ -87,6 +89,7 @@ class RegressLM:
     from torch import optim
     from regress_lm.models.pytorch import model as pytorch_model
     from regress_lm.models.pytorch import fine_tuning as pytorch_fine_tuning
+    from regress_lm.models.pytorch import encoders
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = pytorch_model.PyTorchModel(
@@ -99,7 +102,7 @@ class RegressLM:
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=0,  # Dummy value, will be ignored.
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
-        encoder_type=kwargs.get("encoder_type", "t5gemma"),
+        encoder_type=kwargs.get("encoder_type", encoders.EncoderType.T5GEMMA),
         additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
     ).to(device)
 
@@ -112,6 +115,7 @@ class RegressLM:
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),
+        patience=kwargs.get("patience", 1),
     )
     return cls(model, fine_tuner)
 

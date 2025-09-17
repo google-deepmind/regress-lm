@@ -80,7 +80,8 @@ for _ in range(...):
 ```
 
 ## Boosting Performance and Extended Applications <a name="extended_usage"></a>
-Below, we describe ways to improve performance and extended applications.
+Below, we describe ways to improve performance and extended applications, using
+lower level API.
 
 ### Train Custom Vocabulary
 You can generate a custom vocabulary, trained on an offline corpus of data

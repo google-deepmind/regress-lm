@@ -16,6 +16,7 @@
 
 import abc
 import copy
+import enum
 import functools
 import math
 from typing import Callable, Literal
@@ -569,41 +570,49 @@ class T5GemmaEncoder(BaseEncoder):
     return enc_out.last_hidden_state
 
 
-def get_encoder(
-    encoder_type: str,
-    vocab_size: int,
-    d_model: int,
-    num_layers: int,
-    max_encoder_len: int,
-    **encoder_kwargs,
-) -> BaseEncoder:
-  """Factory function to build the specified encoder."""
+@enum.unique
+class EncoderType(enum.Enum):
+  """Defines the supported encoder architectures."""
 
-  if encoder_type == "vanilla":
-    return VanillaEncoder(
-        vocab_size=vocab_size,
-        d_model=d_model,
-        num_layers=num_layers,
-        max_len=max_encoder_len,
-        **encoder_kwargs,
-    )
-  elif encoder_type == "mamba":
-    return MambaEncoder(
-        vocab_size=vocab_size,
-        d_model=d_model,
-        num_layers=num_layers,
-        **encoder_kwargs,
-    )
-  elif encoder_type == "performer":
-    return PerformerEncoder(
-        vocab_size=vocab_size,
-        d_model=d_model,
-        num_layers=num_layers,
-        **encoder_kwargs,
-    )
-  elif encoder_type == "t5gemma":
-    logging.info("NOTE: Pretrained T5Gemma requires using its specific vocab.")
-    return T5GemmaEncoder(**encoder_kwargs)
+  VANILLA = enum.auto()
+  MAMBA = enum.auto()
+  PERFORMER = enum.auto()
+  T5GEMMA = enum.auto()
 
-  else:
-    raise ValueError(f"Unknown encoder_type: {encoder_type}")
+  def make(
+      self,
+      vocab_size: int,
+      d_model: int,
+      num_layers: int,
+      max_encoder_len: int,
+      **encoder_kwargs,
+  ) -> BaseEncoder:
+    """Factory function to make the specified encoder."""
+
+    if self is EncoderType.VANILLA:
+      return VanillaEncoder(
+          vocab_size=vocab_size,
+          d_model=d_model,
+          num_layers=num_layers,
+          max_len=max_encoder_len,
+          **encoder_kwargs,
+      )
+    elif self is EncoderType.MAMBA:
+      return MambaEncoder(
+          vocab_size=vocab_size,
+          d_model=d_model,
+          num_layers=num_layers,
+          **encoder_kwargs,
+      )
+    elif self is EncoderType.PERFORMER:
+      return PerformerEncoder(
+          vocab_size=vocab_size,
+          d_model=d_model,
+          num_layers=num_layers,
+          **encoder_kwargs,
+      )
+    elif self is EncoderType.T5GEMMA:
+      logging.info("NOTE: T5Gemma requires using its specific vocab.")
+      return T5GemmaEncoder(**encoder_kwargs)
+    else:
+      raise NotImplementedError(f"Encoder type {self} is not implemented.")
