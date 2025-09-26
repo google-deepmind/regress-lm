@@ -64,9 +64,9 @@ pseudocode with PyTorch:
 
 ```python
 from torch import optim
-from regress_lm.models.pytorch import model as torch_model_lib
+from regress_lm.pytorch import model as model_lib
 
-model = torch_model_lib.PyTorchModel(...)
+model = model_lib.PyTorchModel(...)
 optimizer = optim.Adafactor(
     filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4
 )
@@ -125,7 +125,7 @@ model = PyTorchModel(encoder_type=EncoderType.T5GEMMA)
 End-to-end T5Gemma is also supported:
 
 ```python
-from regress_lm.models.pytorch import t5gemma_model
+from regress_lm.pytorch import t5gemma_model
 model = t5gemma_model.T5GemmaModel('google/t5gemma-s-s-prefixlm')
 ```
 

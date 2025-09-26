@@ -18,8 +18,7 @@ import math
 from typing import Sequence, cast
 import numpy as np
 from regress_lm import core
-from regress_lm.models import base as model_base
-from regress_lm.models.pytorch import data_utils
+from regress_lm.pytorch import data_utils
 import torch
 from torch import nn
 from torch import optim
@@ -60,12 +59,12 @@ class _EarlyStoppingTracker:
     return self.epochs_without_improvement >= self.patience
 
 
-class PyTorchFineTuner(model_base.FineTuner):
+class PyTorchFineTuner(core.FineTuner):
   """PyTorch implementation of a local finetuner."""
 
   def __init__(
       self,
-      model: model_base.Model[torch.Tensor],
+      model: core.Model[torch.Tensor],
       optimizer: optim.Optimizer,
       *,
       max_epochs: int = 100,

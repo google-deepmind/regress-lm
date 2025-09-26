@@ -18,7 +18,6 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 from regress_lm import core
-from regress_lm.models import base as model_base
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -40,7 +39,7 @@ def default_y_to_str_fn(ys: float | Sequence[float], precision: int = 4) -> str:
   raise ValueError(f'Unsupported type: {type(ys)}')
 
 
-class T5GemmaModel(nn.Module, model_base.Model[Tensor]):
+class T5GemmaModel(nn.Module, core.Model[Tensor]):
   """Comment."""
 
   def __init__(

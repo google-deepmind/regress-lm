@@ -19,13 +19,12 @@ import numpy as np
 from regress_lm import core
 from regress_lm import tokenizers
 from regress_lm import vocabs
-from regress_lm.models import base
 
 
 class RegressLM:
   """User-facing API for RegressLM."""
 
-  def __init__(self, model: base.Model, fine_tuner: base.FineTuner):
+  def __init__(self, model: core.Model, fine_tuner: core.FineTuner):
     self.model = model
     self.fine_tuner = fine_tuner
 
@@ -43,9 +42,9 @@ class RegressLM:
     # pylint: disable=g-import-not-at-top
     import torch
     from torch import optim
-    from regress_lm.models.pytorch import model as pytorch_model
-    from regress_lm.models.pytorch import fine_tuning as pytorch_fine_tuning
-    from regress_lm.models.pytorch import encoders
+    from regress_lm.pytorch import model as pytorch_model
+    from regress_lm.pytorch import fine_tuning as pytorch_fine_tuning
+    from regress_lm.pytorch import encoders
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = pytorch_model.PyTorchModel(
@@ -87,9 +86,9 @@ class RegressLM:
     # pylint: disable=g-import-not-at-top
     import torch
     from torch import optim
-    from regress_lm.models.pytorch import model as pytorch_model
-    from regress_lm.models.pytorch import fine_tuning as pytorch_fine_tuning
-    from regress_lm.models.pytorch import encoders
+    from regress_lm.pytorch import model as pytorch_model
+    from regress_lm.pytorch import fine_tuning as pytorch_fine_tuning
+    from regress_lm.pytorch import encoders
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = pytorch_model.PyTorchModel(

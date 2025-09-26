@@ -14,7 +14,7 @@
 
 import functools
 from regress_lm import core
-from regress_lm.models.pytorch import t5gemma_model
+from regress_lm.pytorch import t5gemma_model
 import torch
 from absl.testing import absltest
 

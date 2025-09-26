@@ -14,7 +14,7 @@
 
 """Tests for the PyTorch architecture."""
 
-from regress_lm.models.pytorch import architecture
+from regress_lm.pytorch import architecture
 import torch
 from absl.testing import absltest
 

@@ -16,8 +16,7 @@
 
 from unittest import mock
 from regress_lm import core
-from regress_lm.models import base as model_base
-from regress_lm.models.pytorch import inference
+from regress_lm.pytorch import inference
 import torch
 from absl.testing import absltest
 
@@ -27,7 +26,7 @@ class RAFTInferenceTest(absltest.TestCase):
 
   def test_correct_mean_outputs(self):
     """Verifies weighted average is calculated correctly."""
-    mock_model = mock.MagicMock(spec=model_base.Model)
+    mock_model = mock.MagicMock(spec=core.Model)
     grid_points = [10.0, 20.0, 30.0]
     raft_fn = inference.RAFTInferenceFn(
         model=mock_model, grid_points=grid_points

@@ -15,7 +15,7 @@
 """Tests for torch-specific data utils, including DataLoader integration."""
 
 from regress_lm import core
-from regress_lm.models.pytorch import data_utils
+from regress_lm.pytorch import data_utils
 import torch
 from torch import utils
 from absl.testing import absltest

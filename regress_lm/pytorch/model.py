@@ -21,8 +21,7 @@ from typing import Sequence
 import numpy as np
 from regress_lm import core
 from regress_lm import vocabs
-from regress_lm.models import base as model_base
-from regress_lm.models.pytorch import architecture
+from regress_lm.pytorch import architecture
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -33,7 +32,7 @@ NEG_INF = -1.0e7
 Tensor = torch.Tensor
 
 
-class PyTorchModel(nn.Module, model_base.Model[Tensor]):
+class PyTorchModel(nn.Module, core.Model[Tensor]):
   """PyTorch implementation of a RegressLM."""
 
   def __init__(

@@ -20,8 +20,8 @@ import numpy as np
 from regress_lm import core
 from regress_lm import tokenizers
 from regress_lm import vocabs
-from regress_lm.models.pytorch import fine_tuning
-from regress_lm.models.pytorch import model as model_lib
+from regress_lm.pytorch import fine_tuning
+from regress_lm.pytorch import model as model_lib
 import torch
 from torch import optim
 from absl.testing import absltest

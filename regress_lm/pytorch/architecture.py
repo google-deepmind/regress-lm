@@ -16,7 +16,7 @@
 
 import math
 from typing import Any
-from regress_lm.models.pytorch import encoders
+from regress_lm.pytorch import encoders
 import torch
 from torch import nn
 

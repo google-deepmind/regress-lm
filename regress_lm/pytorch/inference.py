@@ -17,14 +17,13 @@
 from typing import Sequence
 
 from regress_lm import core
-from regress_lm.models import base
 import torch
 import torch.nn.functional as F
 
 Tensor = torch.Tensor
 
 
-class RAFTInferenceFn(base.InferenceFn[Tensor]):
+class RAFTInferenceFn(core.InferenceFn[Tensor]):
   """Performs RAFT inference to collect a single float.
 
   The mean can be estimated via sum_{y in Grid}[y * prob(y|x)].
@@ -32,7 +31,7 @@ class RAFTInferenceFn(base.InferenceFn[Tensor]):
   NOTE: `infer` logic can also be used in training with a MSE loss.
   """
 
-  def __init__(self, model: base.Model[Tensor], grid_points: Sequence[float]):
+  def __init__(self, model: core.Model[Tensor], grid_points: Sequence[float]):
     self.model = model
     self.grid_points = grid_points
 

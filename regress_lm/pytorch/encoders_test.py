@@ -14,7 +14,7 @@
 
 import math
 
-from regress_lm.models.pytorch import encoders
+from regress_lm.pytorch import encoders
 import torch
 from torch.nn import functional as F
 
