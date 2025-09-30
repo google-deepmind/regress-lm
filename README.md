@@ -7,6 +7,10 @@
 | [**Extended Usage**](#extended_usage)
 | [**Citing**](#citing)
 
+**Xingyou Song**<sup>\*</sup>, **Yash Akhauri**<sup>\*</sup>, Arissa
+Wongpanich, Dara Bahri, Michal Lukasik, Jiyoun Ha, Adrian N. Reyes, and Bryan
+Lewandowski.
+
 ## Overview
 RegressLM is a library for text-to-text regression, applicable to any input
 string representation and allows pretraining and fine-tuning over multiple
@@ -138,9 +142,7 @@ model = PyTorchModel(encoder_type=EncoderType.MAMBA, additional_encoder_kwargs={
 model = PyTorchModel(encoder_type=EncoderType.PERFORMER, additional_encoder_kwargs={'num_features': 256})
 ```
 
-## Contributors and Citation <a name="citing"></a>
-The codebase was written by: Xingyou Song, Yash Akhauri, Dara Bahri, Michal
-Lukasik, Arissa Wongpanich, Adrian N. Reyes, and Bryan Lewandowski.
+## Citation <a name="citing"></a>
 
 If you find this project useful, please consider citing the relevant works:
 
