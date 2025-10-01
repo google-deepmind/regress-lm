@@ -147,6 +147,16 @@ model = PyTorchModel(encoder_type=EncoderType.PERFORMER, additional_encoder_kwar
 If you find this project useful, please consider citing the relevant works:
 
 ```
+@article{code_rlm,
+      title={Regression Language Models for Code},
+      author={Yash Akhauri and Xingyou Song and Arissa Wongpanich and Bryan Lewandowski and Mohamed S. Abdelfattah},
+      year={2025},
+      eprint={2509.26476},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2509.26476},
+}
+
 @article{performance_prediction,
       title={Performance Prediction for Large Systems via Text-to-Text Regression},
       author={Yash Akhauri and Bryan Lewandowski and Cheng-Hsi Lin and Adrian N. Reyes and Grant C. Forbes and Arissa Wongpanich and Bangding Yang and Mohamed S. Abdelfattah and Sagi Perel and Xingyou Song},
