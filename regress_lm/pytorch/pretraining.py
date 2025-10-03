@@ -17,7 +17,8 @@
 import collections
 import itertools
 import math
-import os
+import multiprocessing as mp
+from regress_lm import core
 from regress_lm.pytorch import model as pytorch_model
 import torch
 from torch import optim
@@ -32,12 +33,14 @@ class Pretrainer:
       self,
       model: pytorch_model.PyTorchModel,
       learning_rate: float,
-      train_ds: utils.data.Dataset,
-      validation_ds: utils.data.Dataset,
+      train_ds: utils.data.Dataset[core.Example],
+      validation_ds: utils.data.Dataset[core.Example],
       batch_size: int,
       validation_batch_size: int,
       num_epochs: int,
       warmup_steps_fraction: float,
+      num_data_workers: int = 0,
+      multiprocessing_context: str | mp.context.BaseContext | None = None,
   ):
     """Initialises the Pretrainer with all hyperparameters."""
 
@@ -54,19 +57,19 @@ class Pretrainer:
         dataset=train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=os.cpu_count(),
-        pin_memory=True,
-        persistent_workers=True,
+        num_workers=num_data_workers,
         drop_last=False,
         collate_fn=self._model.convert_examples,
+        multiprocessing_context=multiprocessing_context,
     )
     self._train_iterator = itertools.cycle(self._train_dl)
     self._val_dl = utils.data.DataLoader(
         dataset=validation_ds,
         batch_size=validation_batch_size,
         shuffle=False,
-        num_workers=os.cpu_count(),
+        num_workers=num_data_workers,
         collate_fn=self._model.convert_examples,
+        multiprocessing_context=multiprocessing_context,
     )
 
     # Create LR scheduler and global step counter.
@@ -119,6 +122,7 @@ class Pretrainer:
 
     self._optimizer.step()
     self._scheduler.step()
+    self._global_step += 1
 
     train_metrics = {f"train_{k}": v.item() for k, v in metrics.items()}
     train_metrics["train_loss"] = loss.item()
@@ -130,5 +134,5 @@ class Pretrainer:
 
   @property
   def total_steps(self) -> int:
-    steps_per_epoch = math.ceil(len(self._train_dl) / self._train_dl.batch_size)
+    steps_per_epoch = len(self._train_dl)
     return steps_per_epoch * self._num_epochs

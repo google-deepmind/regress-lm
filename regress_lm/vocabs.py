@@ -16,7 +16,7 @@
 
 import abc
 import pathlib
-from typing import Generic, Sequence, TypeVar
+from typing import Any, Generic, Sequence, TypeVar
 from regress_lm import tokenizers
 import tokenizers as ht
 import transformers
@@ -188,6 +188,9 @@ class StructuredTextVocab(EncoderVocab[str]):
     return self.tokenizer.get_vocab_size()
 
 
+open_file = open
+
+
 class SentencePieceVocab(EncoderVocab[str]):
   """SentencePiece vocab."""
 
@@ -195,7 +198,6 @@ class SentencePieceVocab(EncoderVocab[str]):
 
   def __init__(self, file_path: str):
     """Initializes SentencePieceVocab by loading a pre-trained .model file."""
-    self.sp_processor = spp.SentencePieceProcessor()
 
     if file_path.startswith('gs://'):  # Check Google Cloud Storage path.
       import gcsfs, os
@@ -204,13 +206,24 @@ class SentencePieceVocab(EncoderVocab[str]):
       gcsfs.GCSFileSystem(token='anon').get(file_path, local_path)
       file_path = local_path
 
-    self.sp_processor.Load(file_path)
+    self.file_path = file_path
+    self.sp_processor = spp.SentencePieceProcessor()
+    self.sp_processor.Load(self.file_path)
 
     if self.sp_processor.pad_id() == -1:
       raise ValueError(
           f"SentencePiece model '{file_path}' does not have a PAD token"
           " explicitly defined."
       )
+
+  # Helps multiprocessing pickling, which fails with C++ SentencePieceProcessor.
+  def __getstate__(self) -> dict[str, Any]:
+    with open_file(self.file_path, "rb") as f:
+      return {"model_blob": f.read()}
+
+  def __setstate__(self, state: dict[str, Any]) -> None:
+    self.sp_processor = spp.SentencePieceProcessor()
+    self.sp_processor.LoadFromSerializedProto(state["model_blob"])
 
   def to_token_ids(self, obj: str, /) -> list[int]:
     """Converts text to a list of token ids using the SentencePiece model."""
