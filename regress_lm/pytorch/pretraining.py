@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Single-process pretraining class for RegressLM."""
+"""Pretraining class for RegressLM."""
 
 import collections
-import itertools
-import math
 import multiprocessing as mp
 from regress_lm import core
 from regress_lm.pytorch import model as pytorch_model
@@ -25,44 +23,47 @@ from torch import optim
 from torch import utils
 from torch.optim import lr_scheduler
 
+DistributedSampler = torch.utils.data.distributed.DistributedSampler
+PyTorchModel = pytorch_model.PyTorchModel
+
 
 class Pretrainer:
   """A class to encapsulate the RegressLM pretraining process."""
 
   def __init__(
       self,
-      model: pytorch_model.PyTorchModel,
-      learning_rate: float,
+      model: PyTorchModel,
+      optimizer: optim.Optimizer,
+      scheduler: lr_scheduler.LRScheduler,
       train_ds: utils.data.Dataset[core.Example],
       validation_ds: utils.data.Dataset[core.Example],
       batch_size: int,
       validation_batch_size: int,
-      num_epochs: int,
-      warmup_steps_fraction: float,
+      is_distributed: bool = False,
       num_data_workers: int = 0,
       multiprocessing_context: str | mp.context.BaseContext | None = None,
   ):
     """Initialises the Pretrainer with all hyperparameters."""
 
     self._model = model
-    self._optimizer = optim.Adafactor(
-        self._model.parameters(), lr=learning_rate
-    )
-
-    self._num_epochs = num_epochs
-    self._warmup_steps_fraction = warmup_steps_fraction
+    self._optimizer = optimizer
+    self._scheduler = scheduler
+    self._global_step = 0
 
     # Create dataloaders for training and validation.
+    self._train_sampler = (
+        DistributedSampler(train_ds) if is_distributed else None
+    )
     self._train_dl = utils.data.DataLoader(
         dataset=train_ds,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=(self._train_sampler is None),
         num_workers=num_data_workers,
         drop_last=False,
         collate_fn=self._model.convert_examples,
+        sampler=self._train_sampler,
         multiprocessing_context=multiprocessing_context,
     )
-    self._train_iterator = itertools.cycle(self._train_dl)
     self._val_dl = utils.data.DataLoader(
         dataset=validation_ds,
         batch_size=validation_batch_size,
@@ -72,23 +73,7 @@ class Pretrainer:
         multiprocessing_context=multiprocessing_context,
     )
 
-    # Create LR scheduler and global step counter.
-    self._scheduler = self._create_lr_scheduler()
-    self._global_step = 0
-
-  def _create_lr_scheduler(self) -> lr_scheduler.LambdaLR:
-    """Creates a learning rate scheduler."""
-    warmup_steps = int(self.total_steps * self._warmup_steps_fraction)
-
-    def lr_lambda(step: int) -> float:
-      if step < warmup_steps:
-        return step / max(1, warmup_steps)
-      progress = (step - warmup_steps) / max(1, self.total_steps - warmup_steps)
-      return 0.5 * (1.0 + math.cos(math.pi * progress))
-
-    return lr_scheduler.LambdaLR(self._optimizer, lr_lambda)
-
-  def run_validation(self) -> dict[str, float]:
+  def run_validation_epoch(self) -> dict[str, float]:
     """Runs the validation loop and returns metrics."""
     self._model.eval()
     total_loss, total_items = 0.0, 0
@@ -110,12 +95,11 @@ class Pretrainer:
     val_metrics["validation_loss"] = total_loss / total_items
     return val_metrics
 
-  def run_train_step(self) -> dict[str, float]:
+  def run_train_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
     """Runs train step and returns metrics."""
     self._model.train()
     self._optimizer.zero_grad(set_to_none=True)
 
-    batch = next(self._train_iterator)
     losses_per_example, metrics = self._model.compute_losses_and_metrics(batch)
     loss = losses_per_example.mean()
     loss.backward()
@@ -133,6 +117,9 @@ class Pretrainer:
     return self._global_step
 
   @property
-  def total_steps(self) -> int:
-    steps_per_epoch = len(self._train_dl)
-    return steps_per_epoch * self._num_epochs
+  def train_sampler(self) -> DistributedSampler | None:
+    return self._train_sampler
+
+  @property
+  def train_dl(self) -> utils.data.DataLoader:
+    return self._train_dl
