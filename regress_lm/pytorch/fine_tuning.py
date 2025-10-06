@@ -112,8 +112,8 @@ class PyTorchFineTuner(core.FineTuner):
       micro_batch_size = min(effective_batch_size, self.batch_size_per_device)
     grad_acc_steps = math.ceil(effective_batch_size / micro_batch_size)
 
-    train_tensors = self.model.convert_examples(examples)
-    valid_tensors = self.model.convert_examples(validation_examples)
+    train_tensors = self.model.converter.convert_examples(examples)
+    valid_tensors = self.model.converter.convert_examples(validation_examples)
 
     train_dl = utils.data.DataLoader(
         data_utils.DictTensorDataset(train_tensors),

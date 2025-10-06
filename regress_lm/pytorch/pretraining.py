@@ -58,15 +58,15 @@ class Pretrainer:
         shuffle=(self._train_sampler is None),
         num_workers=num_data_workers,
         drop_last=False,
-        collate_fn=self._model.convert_examples,
         sampler=self._train_sampler,
+        collate_fn=self._model.converter.convert_examples,
     )
     self._val_dl = utils.data.DataLoader(
         dataset=validation_ds,
         batch_size=validation_batch_size,
         shuffle=False,
         num_workers=num_data_workers,
-        collate_fn=self._model.convert_examples,
+        collate_fn=self._model.converter.convert_examples,
     )
 
   def run_validation_epoch(self) -> dict[str, float]:

@@ -47,19 +47,27 @@ class RegressLM:
     from regress_lm.pytorch import encoders
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    model = pytorch_model.PyTorchModel(
+
+    architecture_kwargs = dict(
+        d_model=kwargs.get("d_model", 512),
+        num_encoder_layers=kwargs.get("num_encoder_layers", 2),
+        num_decoder_layers=kwargs.get("num_decoder_layers", 2),
+        encoder_type=kwargs.get("encoder_type", encoders.EncoderType.VANILLA),
+        additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
+    )
+
+    config = pytorch_model.PyTorchModelConfig(
         encoder_vocab=kwargs.get("encoder_vocab")
         or vocabs.SentencePieceVocab.from_t5(),
         decoder_vocab=kwargs.get("decoder_vocab")
         or vocabs.DecoderVocab(tokenizers.P10Tokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
-        compile_model=kwargs.get("compile_model", True),
-        d_model=kwargs.get("d_model", 512),
-        num_encoder_layers=kwargs.get("num_encoder_layers", 2),
-        num_decoder_layers=kwargs.get("num_decoder_layers", 2),
-        encoder_type=kwargs.get("encoder_type", encoders.EncoderType.VANILLA),
-        additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
+        architecture_kwargs=architecture_kwargs,
+    )
+
+    model = config.make_model(
+        compile_model=kwargs.get("compile_model", True)
     ).to(device)
 
     optimizer = kwargs.get("optimizer", None) or optim.Adafactor(
@@ -91,18 +99,27 @@ class RegressLM:
     from regress_lm.pytorch import encoders
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    model = pytorch_model.PyTorchModel(
-        encoder_vocab=vocabs.HuggingFaceVocab(model_name),
-        decoder_vocab=kwargs.get("decoder_vocab")
-        or vocabs.DecoderVocab(tokenizers.P10Tokenizer()),
-        max_input_len=kwargs.get("max_input_len", 2048),
-        max_num_objs=kwargs.get("max_num_objs", 1),
-        compile_model=kwargs.get("compile_model", True),
+
+    architecture_kwargs = dict(
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=0,  # Dummy value, will be ignored.
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
         encoder_type=kwargs.get("encoder_type", encoders.EncoderType.T5GEMMA),
         additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
+    )
+
+    config = pytorch_model.PyTorchModelConfig(
+        encoder_vocab=vocabs.HuggingFaceVocab(model_name)
+        or vocabs.SentencePieceVocab.from_t5(),
+        decoder_vocab=kwargs.get("decoder_vocab")
+        or vocabs.DecoderVocab(tokenizers.P10Tokenizer()),
+        max_input_len=kwargs.get("max_input_len", 2048),
+        max_num_objs=kwargs.get("max_num_objs", 1),
+        architecture_kwargs=architecture_kwargs,
+    )
+
+    model = config.make_model(
+        compile_model=kwargs.get("compile_model", True)
     ).to(device)
 
     optimizer = kwargs.get("optimizer", None) or optim.Adafactor(
@@ -122,6 +139,6 @@ class RegressLM:
       self, xs: Sequence[core.ExampleInput], num_samples: int
   ) -> Sequence[np.ndarray]:
     """Samples from the model."""
-    examples = self.model.convert_inputs(xs)
+    examples = self.model.converter.convert_inputs(xs)
     _, output_floats = self.model.decode(examples, num_samples)
     return [y.squeeze(axis=0) for y in np.split(output_floats, len(xs), axis=0)]

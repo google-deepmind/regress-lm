@@ -32,7 +32,24 @@ class Example(ExampleInput):
 
 
 TensorT = TypeVar('TensorT')  # Low-level tensor type.
-PredictionOutputT = TypeVar('PredictionOutputT')
+
+
+class Converter(Generic[TensorT], abc.ABC):
+  """Converts high-level inputs and examples to batched low-level inputs.
+
+  This is intentionally separated from the model in case we only want the data
+  processing logic as a lightweight class without the model weights.
+  """
+
+  @abc.abstractmethod
+  def convert_inputs(
+      self, inputs: Sequence[ExampleInput]
+  ) -> dict[str, TensorT]:
+    """Converts high-level inputs to batched low-level inputs."""
+
+  @abc.abstractmethod
+  def convert_examples(self, examples: Sequence[Example]) -> dict[str, TensorT]:
+    """Converts high-level examples to batched low-level examples."""
 
 
 class Model(Generic[TensorT], abc.ABC):
@@ -40,9 +57,6 @@ class Model(Generic[TensorT], abc.ABC):
 
   Uses generic types to allow different low-level tensor packages (Jax, PyTorch,
   etc.). ExampleT can be jax.Array, torch.Tensor, etc.
-
-  Conversion between high-level and low-level implementations can be done via
-  wrappers.
   """
 
   @abc.abstractmethod
@@ -61,15 +75,10 @@ class Model(Generic[TensorT], abc.ABC):
   def log_prob(self, examples: dict[str, TensorT]) -> TensorT:
     """Returns log probability of y given x."""
 
+  @property
   @abc.abstractmethod
-  def convert_inputs(
-      self, inputs: Sequence[ExampleInput]
-  ) -> dict[str, TensorT]:
-    """Converts high-level inputs to batched low-level inputs."""
-
-  @abc.abstractmethod
-  def convert_examples(self, examples: Sequence[Example]) -> dict[str, TensorT]:
-    """Converts high-level examples to batched low-level examples."""
+  def converter(self) -> Converter[TensorT]:
+    """Returns a converter aligned with this model."""
 
 
 class FineTuner(abc.ABC):
@@ -95,6 +104,9 @@ class FineTuner(abc.ABC):
     Returns:
       None
     """
+
+
+PredictionOutputT = TypeVar('PredictionOutputT')
 
 
 class InferenceFn(Generic[PredictionOutputT], abc.ABC):

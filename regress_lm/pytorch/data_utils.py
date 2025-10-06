@@ -12,31 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Torch-specific data utilities for creating efficient, parallelized data pipelines.
-
-This module provides building blocks that follow PyTorch best practices. The
-recommended pattern is to use the `ExampleDataset` to wrap raw data and then
-pass the model's own `convert_examples` method as the `collate_fn` to the
-`DataLoader`.
-
-This separates the responsibility of data fetching (the Dataset) from data
-batching and processing (the collate_fn), allowing the DataLoader to
-efficiently parallelize the entire pipeline.
-
-Example usage:
-```
-train_ds = ExampleDataset(examples)
-train_dl = utils.data.DataLoader(
-    dataset=train_ds,
-    batch_size=batch_size,
-    shuffle=shuffle,
-    num_workers=num_workers,
-    collate_fn=self.model.convert_examples,
-    pin_memory=True,
-)
-for batch in train_dl:
-  # Do something with the batch
-"""
+"""Torch-specific datasets for creating data pipelines."""
 
 from typing import Sequence
 
@@ -45,12 +21,11 @@ import torch
 from torch import utils
 
 
-class ExampleDataset(utils.data.Dataset):
+class ExampleInputDataset(utils.data.Dataset[core.ExampleInput]):
   """A simple Dataset that holds raw `core.ExampleInput` objects.
 
-  Its responsibility is to simply retrieve an unprocessed example by its index.
-  It is intentionally lightweight. The heavy lifting of converting examples
-  to tensors is deferred to the DataLoader's `collate_fn`.
+  Its responsibility is to simply retrieve an unprocessed input by its index.
+  It is intentionally lightweight.
   """
 
   def __init__(self, examples: Sequence[core.ExampleInput]):
@@ -63,7 +38,20 @@ class ExampleDataset(utils.data.Dataset):
     return self.examples[idx]
 
 
-class DictTensorDataset(utils.data.Dataset):
+class ExampleDataset(utils.data.Dataset[core.Example]):
+  """A simple Dataset that holds raw `core.Example` objects. Same as above."""
+
+  def __init__(self, examples: Sequence[core.Example]):
+    self.examples = examples
+
+  def __len__(self) -> int:
+    return len(self.examples)
+
+  def __getitem__(self, idx: int) -> core.Example:
+    return self.examples[idx]
+
+
+class DictTensorDataset(utils.data.Dataset[dict[str, torch.Tensor]]):
   """Wraps a dictionary of tensors so that each sample is also a dictionary.
 
   This is useful for small datasets that can be fully pre-processed and held

@@ -23,19 +23,19 @@ class T5gemmaModelTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    y_to_str_fn = functools.partial(
-        t5gemma_model.default_y_to_str_fn, precision=1
-    )
-    self.model = t5gemma_model.T5GemmaModel(
-        "google/t5gemma-s-s-prefixlm",
+    self.cfg = t5gemma_model.T5GemmaModelConfig(
+        model_name="google/t5gemma-s-s-prefixlm",
         max_input_len=10,
         max_decode_len=10,
-        y_to_str_fn=y_to_str_fn,
+        y_to_str_fn=functools.partial(
+            t5gemma_model.default_y_to_str_fn, precision=1
+        ),
     )
+    self.model = self.cfg.make_model()
 
   def test_convert_examples(self):
     examples = [core.Example(x="a s d", y=1.0), core.Example(x="z x c", y=0.0)]
-    batch = self.model.convert_examples(examples)
+    batch = self.model.converter.convert_examples(examples)
     self.assertEqual(batch["input_ids"].shape, (2, 10))
     self.assertEqual(batch["attention_mask"].shape, (2, 10))
     self.assertEqual(batch["labels"].shape, (2, 10))
@@ -53,14 +53,14 @@ class T5gemmaModelTest(absltest.TestCase):
 
   def test_loss_and_metrics(self):
     examples = [core.Example(x="hello", y=1.0), core.Example(x="world", y=0.0)]
-    batch = self.model.convert_examples(examples)
+    batch = self.model.converter.convert_examples(examples)
     losses_per_example, _ = self.model.compute_losses_and_metrics(batch)
     self.assertEqual(losses_per_example.shape, (2,))
     self.assertAlmostEqual(losses_per_example.mean().item(), 4.9336, 3)
 
   def test_log_prob(self):
     examples = [core.Example(x="hello", y=1.0), core.Example(x="world", y=0.0)]
-    batch = self.model.convert_examples(examples)
+    batch = self.model.converter.convert_examples(examples)
     log_probs = self.model.log_prob(batch)
     self.assertEqual(log_probs.shape, (2,))
     self.assertAlmostEqual(log_probs[0].item(), -40.6720, 3)
@@ -68,7 +68,7 @@ class T5gemmaModelTest(absltest.TestCase):
 
   @absltest.skip("T5Gemma sometimes not up to date with HF")
   def test_decode(self):
-    batch = self.model.convert_inputs(
+    batch = self.model.converter.convert_inputs(
         [core.ExampleInput(x="a s d"), core.ExampleInput(x="z x c")]
     )
 

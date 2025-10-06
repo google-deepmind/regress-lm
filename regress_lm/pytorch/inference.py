@@ -45,7 +45,7 @@ class RAFTInferenceFn(core.InferenceFn[Tensor]):
     # Convert and run the model on the entire batch in a single forward pass
     # This batch will have a size of (L_inputs * L_grid_points)
     # TODO: Parallelize example conversion.
-    grid_batch = self.model.convert_examples(all_grid_examples)
+    grid_batch = self.model.converter.convert_examples(all_grid_examples)
 
     log_probs = self.model.log_prob(grid_batch)
     log_probs = log_probs.view(len(inputs), len(self.grid_points))

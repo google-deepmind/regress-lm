@@ -70,13 +70,13 @@ pseudocode with PyTorch:
 from torch import optim
 from regress_lm.pytorch import model as model_lib
 
-model = model_lib.PyTorchModel(...)
+model = model_lib.PyTorchModelConfig(...).make_model()
 optimizer = optim.Adafactor(
     filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4
 )
 for _ in range(...):
   examples = [Example(x=..., y=...), ...]
-  tensor_examples = model.convert(examples)
+  tensor_examples = model.converter.convert(examples)
   optimizer.zero_grad()
   loss, _ = model.compute_loss_and_metrics(tensor_examples)
   loss.backward()
@@ -100,7 +100,7 @@ Larger model sizes may increase performance, although with more computational
 cost:
 
 ```python
-model = PyTorchModel(num_encoder_layers=12, num_decoder_layers=12)
+config = PyTorchModelConfig(architecture_kwargs=dict(num_encoder_layers=12, num_decoder_layers=12))
 ```
 
 ### Multi-objective Support
@@ -123,14 +123,14 @@ samples = reg_lm.sample([core.ExampleInput(x='hi')], num_samples=128)[0]
 default decoder is supported:
 
 ```python
-model = PyTorchModel(encoder_type=EncoderType.T5GEMMA)
+config = PyTorchModelConfig(architecture_kwargs=dict(encoder_type=EncoderType.T5GEMMA))
 ```
 
 End-to-end T5Gemma is also supported:
 
 ```python
 from regress_lm.pytorch import t5gemma_model
-model = t5gemma_model.T5GemmaModel('google/t5gemma-s-s-prefixlm')
+model = t5gemma_model.T5GemmaModelConfig('google/t5gemma-s-s-prefixlm').make_model()
 ```
 
 ### Long-Context
@@ -138,8 +138,8 @@ To support 100K+ input token lengths, alternative encoders (e.g.
 [`mamba-ssm`](https://github.com/state-spaces/mamba) and [Performer](https://research.google/blog/rethinking-attention-with-performers/)) are supported:
 
 ```python
-model = PyTorchModel(encoder_type=EncoderType.MAMBA, additional_encoder_kwargs={'d_state': 128})
-model = PyTorchModel(encoder_type=EncoderType.PERFORMER, additional_encoder_kwargs={'num_features': 256})
+architecture_kwargs = dict(encoder_type=EncoderType.MAMBA, additional_encoder_kwargs={'d_state': 128})
+architecture_kwargs = dict(encoder_type=EncoderType.PERFORMER, additional_encoder_kwargs={'num_features': 256})
 ```
 
 ## Citation <a name="citing"></a>

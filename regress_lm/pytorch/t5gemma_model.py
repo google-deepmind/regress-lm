@@ -14,8 +14,9 @@
 
 """T5Gemma wrapper."""
 
+import dataclasses
+import functools
 from typing import Any, Callable, Sequence
-
 import numpy as np
 from regress_lm import core
 import torch
@@ -39,33 +40,82 @@ def default_y_to_str_fn(ys: float | Sequence[float], precision: int = 4) -> str:
   raise ValueError(f'Unsupported type: {type(ys)}')
 
 
+@dataclasses.dataclass(frozen=True)
+class T5GemmaModelConfig:
+  """Configuration for creating a T5Gemma model and its data converter."""
+
+  model_name: str
+  max_input_len: int = 2048
+  max_decode_len: int = 32  # Max tokens for the numeric output string
+  x_to_str_fn: Callable[[str], str] = lambda x: x  # For prompting.
+  y_to_str_fn: Callable[[float | Sequence[float]], str] = default_y_to_str_fn  # pylint: disable=line-too-long
+  model_kwargs: dict[str, Any] | None = None  # For T5Gemma kwargs.
+  tokenizer_kwargs: dict[str, Any] | None = None  # For tokenizer kwargs.
+
+  def make_converter(self) -> 'T5GemmaConverter':
+    """Factory method to create a data converter from this config."""
+    return T5GemmaConverter(config=self)
+
+  def make_model(self) -> 'T5GemmaModel':
+    """Factory method to create a model from this config."""
+    return T5GemmaModel(config=self)
+
+
+class T5GemmaConverter(core.Converter[Tensor]):
+  """Converts high-level inputs and examples to batched low-level inputs."""
+
+  def __init__(self, config: T5GemmaModelConfig):
+    self.cfg = config
+
+    self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+        self.cfg.model_name, **(self.cfg.tokenizer_kwargs or {})
+    )
+
+  def convert_inputs(
+      self, inputs: Sequence[core.ExampleInput]
+  ) -> dict[str, Tensor]:
+    """Converts string inputs to tokenized tensors for the encoder."""
+    return self.tokenizer(
+        [self.cfg.x_to_str_fn(ex.x) for ex in inputs],
+        padding='max_length',
+        truncation=True,
+        max_length=self.cfg.max_input_len,
+        return_tensors='pt',
+    )
+
+  def convert_examples(
+      self, examples: Sequence[core.Example]
+  ) -> dict[str, Tensor]:
+    # Add the EOS token to the end of the string.
+    output = self.tokenizer(
+        [
+            self.cfg.y_to_str_fn(ex.y) + self.tokenizer.eos_token
+            for ex in examples
+        ],
+        padding='max_length',
+        truncation=True,
+        max_length=self.cfg.max_decode_len,
+        return_tensors='pt',
+    )
+    labels = output.input_ids
+
+    labels[labels == self.tokenizer.pad_token_id] = IGNORE_TOKEN_ID
+    return {'labels': labels, **self.convert_inputs(examples)}
+
+
 class T5GemmaModel(nn.Module, core.Model[Tensor]):
   """Comment."""
 
-  def __init__(
-      self,
-      model_name: str,
-      max_input_len: int = 2048,
-      max_decode_len: int = 32,  # Max tokens for the numeric output string
-      x_to_str_fn: Callable[[str], str] = lambda x: x,  # For prompting.
-      y_to_str_fn: Callable[[float | Sequence[float]], str] = default_y_to_str_fn,  # pylint: disable=line-too-long
-      model_kwargs: dict[str, Any] | None = None,  # For T5Gemma kwargs.
-      tokenizer_kwargs: dict[str, Any] | None = None,  # For tokenizer kwargs.
-  ):
+  def __init__(self, config: T5GemmaModelConfig):
     super().__init__()
-    self.model_name = model_name
-    self.max_input_len = max_input_len
-    self.max_decode_len = max_decode_len
+    self.cfg = config
 
     self.model = transformers.T5GemmaForConditionalGeneration.from_pretrained(
-        model_name, **(model_kwargs or {})
+        self.cfg.model_name, **(self.cfg.model_kwargs or {})
     )
     self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-        model_name, **(tokenizer_kwargs or {})
+        self.cfg.model_name, **(self.cfg.tokenizer_kwargs or {})
     )
-
-    self.x_to_str_fn = x_to_str_fn
-    self.y_to_str_fn = lambda y: y_to_str_fn(y) + self.tokenizer.eos_token
 
   def compute_losses_and_metrics(
       self, examples: dict[str, Tensor]
@@ -121,7 +171,7 @@ class T5GemmaModel(nn.Module, core.Model[Tensor]):
     decoded_tokens = self.model.generate(
         inputs['input_ids'],
         attention_mask=inputs['attention_mask'],
-        max_new_tokens=self.max_decode_len,
+        max_new_tokens=self.cfg.max_decode_len,
         num_return_sequences=num_samples,
         do_sample=True,
         pad_token_id=self.tokenizer.pad_token_id,
@@ -155,30 +205,6 @@ class T5GemmaModel(nn.Module, core.Model[Tensor]):
     mask = (labels != IGNORE_TOKEN_ID).float()  # (B, L)
     return (log_probs * mask).sum(dim=1)  # (B,)
 
-  def convert_inputs(
-      self, inputs: Sequence[core.ExampleInput]
-  ) -> dict[str, Tensor]:
-    """Converts string inputs to tokenized tensors for the encoder."""
-    return self.tokenizer(
-        [self.x_to_str_fn(ex.x) for ex in inputs],
-        padding='max_length',
-        truncation=True,
-        max_length=self.max_input_len,
-        return_tensors='pt',
-    )
-
-  def convert_examples(
-      self, examples: Sequence[core.Example]
-  ) -> dict[str, Tensor]:
-    # Tokenize the target strings to create the labels
-    output = self.tokenizer(
-        [self.y_to_str_fn(ex.y) for ex in examples],
-        padding='max_length',
-        truncation=True,
-        max_length=self.max_decode_len,
-        return_tensors='pt',
-    )
-    labels = output.input_ids
-
-    labels[labels == self.tokenizer.pad_token_id] = IGNORE_TOKEN_ID
-    return {'labels': labels, **self.convert_inputs(examples)}
+  @functools.cached_property
+  def converter(self) -> core.Converter[Tensor]:
+    return self.cfg.make_converter()

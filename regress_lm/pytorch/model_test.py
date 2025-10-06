@@ -15,6 +15,7 @@
 """Tests for the PyTorch model."""
 
 import copy
+import dataclasses
 from typing import cast
 import numpy as np
 from regress_lm import core
@@ -41,13 +42,14 @@ class ModelTest(parameterized.TestCase):
         num_encoder_layers=1,
         num_decoder_layers=1,
     )
-    self.model = model_lib.PyTorchModel(
+    self.cfg = model_lib.PyTorchModelConfig(
         encoder_vocab=self.encoder_vocab,
         decoder_vocab=self.decoder_vocab,
         max_input_len=4,
-        compile_model=False,
-        **self.architecture_kwargs,
+        architecture_kwargs=self.architecture_kwargs,
     )
+    self.model = self.cfg.make_model(compile_model=False)
+
     self.fine_tuner = fine_tuning.PyTorchFineTuner(
         self.model,
         optimizer=optim.Adafactor(
@@ -57,7 +59,7 @@ class ModelTest(parameterized.TestCase):
     )
 
   def test_convert(self):
-    batch = self.model.convert_examples(
+    batch = self.model.converter.convert_examples(
         [core.Example(x='hello', y=1.0), core.Example(x='world', y=2.0)]
     )
 
@@ -77,7 +79,7 @@ class ModelTest(parameterized.TestCase):
         core.Example(x='hello', y=1.0),
         core.Example(x='hello', y=1.0),
     ]
-    examples_tensors = self.model.convert_examples(raw_examples)
+    examples_tensors = self.model.converter.convert_examples(raw_examples)
     log_probs_before = self.model.log_prob(examples_tensors)
     self.assertEqual(log_probs_before.shape, (2,))
     self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -26.32, 1)
@@ -94,7 +96,7 @@ class ModelTest(parameterized.TestCase):
         core.Example(x='hello', y=1.0),
         core.Example(x='world', y=10000.0),
     ]
-    examples_tensors = self.model.convert_examples(raw_examples)
+    examples_tensors = self.model.converter.convert_examples(raw_examples)
 
     self.model.eval()
     with torch.no_grad():
@@ -112,7 +114,7 @@ class ModelTest(parameterized.TestCase):
 
   def test_decode(self):
     raw_example = [core.Example(x='hello', y=2.123)]
-    batch = self.model.convert_examples(raw_example)
+    batch = self.model.converter.convert_examples(raw_example)
     decoded_ids, output_floats = self.model.decode(batch, num_samples=1024)
     # 1 example, 1024 samples, 6 tokens per objective, 1 objective total.
     self.assertEqual(tuple(decoded_ids.shape), (1, 1024, 6))
@@ -133,13 +135,12 @@ class ModelTest(parameterized.TestCase):
 
   def test_decode_special_tokens(self):
     tokenizer = tokenizers.AddSpecialValues(tokenizers.P10Tokenizer())
-    model = model_lib.PyTorchModel(
-        encoder_vocab=self.encoder_vocab,
+    cfg = dataclasses.replace(
+        self.cfg,
         decoder_vocab=vocabs.DecoderVocab(tokenizer),
         max_input_len=4,
-        compile_model=False,
-        **self.architecture_kwargs,
     )
+    model = cfg.make_model(compile_model=False)
     examples = [
         core.Example(x='hello', y=float('-inf')),
         core.Example(x='bye', y=float('-inf')),
@@ -147,7 +148,7 @@ class ModelTest(parameterized.TestCase):
 
     # Update the model. More likely to decode special tokens.
     self.fine_tuner.fine_tune(examples, seed=42)
-    batch = model.convert_examples(examples)
+    batch = model.converter.convert_examples(examples)
     decoded_ids, _ = model.decode(batch, num_samples=5)
 
     np.testing.assert_array_equal(decoded_ids[0, 0], [37, 37, 37, 37, 37, 37])
@@ -159,25 +160,24 @@ class ModelTest(parameterized.TestCase):
     if add_separators:
       tokenizer = tokenizers.AppendPadTokenizer(tokenizer)
 
-    model = model_lib.PyTorchModel(
-        encoder_vocab=self.encoder_vocab,
+    cfg = dataclasses.replace(
+        self.cfg,
         decoder_vocab=vocabs.DecoderVocab(tokenizer),
         max_input_len=4,
         max_num_objs=2,
-        compile_model=False,
-        **self.architecture_kwargs,
     )
+    model = cfg.make_model(compile_model=False)
 
     examples = [core.ExampleInput(x='hello'), core.ExampleInput(x='world')]
-    batch = model.convert_inputs(examples)
+    batch = model.converter.convert_inputs(examples)
 
     decoded_ids, output_floats = model.decode(batch, num_samples=1024)
     if not add_separators:  # 12 = 2 objectives * 6 tokens per objective.
       self.assertEqual(tuple(decoded_ids.shape), (2, 1024, 12))
-      self.assertEqual(model.decode_len, 12)
+      self.assertEqual(cfg.decode_len, 12)
     else:  # +2 for padding/separators.
       self.assertEqual(tuple(decoded_ids.shape), (2, 1024, 14))
-      self.assertEqual(model.decode_len, 14)
+      self.assertEqual(cfg.decode_len, 14)
 
     # Now 2 objectives for last axis.
     self.assertEqual(tuple(output_floats.shape), (2, 1024, 2))
@@ -185,19 +185,12 @@ class ModelTest(parameterized.TestCase):
   def test_gradient_accumulation_equivalence(self):
     torch.manual_seed(123)
 
-    model_base = model_lib.PyTorchModel(
-        encoder_vocab=self.encoder_vocab,
-        decoder_vocab=self.decoder_vocab,
-        max_input_len=4,
-        compile_model=False,
-        **self.architecture_kwargs,
-    )
-    model_microbatch = copy.deepcopy(model_base)
-    model_microbatch.load_state_dict(model_base.state_dict())
+    model_microbatch = copy.deepcopy(self.model)
+    model_microbatch.load_state_dict(self.model.state_dict())
 
     fine_tuner_base = fine_tuning.PyTorchFineTuner(
-        model=model_base,
-        optimizer=optim.Adafactor(model_base.parameters(), lr=1e-4),
+        model=self.model,
+        optimizer=optim.Adafactor(self.model.parameters(), lr=1e-4),
         max_epochs=1,
     )
     fine_tuner_microbatch = fine_tuning.PyTorchFineTuner(
@@ -214,7 +207,7 @@ class ModelTest(parameterized.TestCase):
     fine_tuner_microbatch.fine_tune(train_examples, seed=42)
 
     # --- Verification ---
-    for p1, p2 in zip(model_base.parameters(), model_microbatch.parameters()):
+    for p1, p2 in zip(self.model.parameters(), model_microbatch.parameters()):
       torch.testing.assert_close(p1, p2, atol=1e-7, rtol=1e-5)
 
   def test_early_stopping_with_patience(self):

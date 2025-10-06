@@ -16,7 +16,9 @@
 
 # pytype:disable=attribute-error
 from concurrent import futures
+import dataclasses
 import functools
+from typing import Any
 from typing import Sequence
 import numpy as np
 from regress_lm import core
@@ -32,34 +34,98 @@ NEG_INF = -1.0e7
 Tensor = torch.Tensor
 
 
+@dataclasses.dataclass(frozen=True)
+class PyTorchModelConfig:
+  """Configuration for creating a RegressLM model and its data converter."""
+
+  # Vocabularies
+  encoder_vocab: vocabs.EncoderVocab[str]
+  decoder_vocab: vocabs.DecoderVocab[float]
+
+  # Core Dimensions
+  max_input_len: int = 2048
+  max_num_objs: int = 1
+
+  architecture_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+  # Other settings
+  z_loss_coef: float | None = None
+
+  @property
+  def decode_len(self) -> int:
+    return self.max_num_objs * self.decoder_vocab.num_tokens_per_obj
+
+  def make_converter(self) -> 'PyTorchConverter':
+    """Factory method to create a data converter from this config."""
+    return PyTorchConverter(config=self)
+
+  def make_model(self, compile_model: bool = True) -> 'PyTorchModel':
+    """Factory method to create a model from this config."""
+    return PyTorchModel(config=self, compile_model=compile_model)
+
+
+class PyTorchConverter(core.Converter[Tensor]):
+  """Converts high-level inputs and examples to batched low-level inputs."""
+
+  def __init__(self, config: PyTorchModelConfig):
+    self.cfg = config
+
+  def convert_inputs(
+      self, inputs: Sequence[core.ExampleInput]
+  ) -> dict[str, Tensor]:
+    strings = [example.x for example in inputs]
+    encoder_token_ids = [
+        self.cfg.encoder_vocab.to_token_ids(s) for s in strings
+    ]
+    encoder_input = [self._pad_or_truncate(t) for t in encoder_token_ids]
+    return {'encoder_input': torch.tensor(encoder_input)}
+
+  def convert_examples(
+      self, examples: Sequence[core.Example]
+  ) -> dict[str, Tensor]:
+    y_values = [example.y for example in examples]
+    y_tokens_list = [self.cfg.decoder_vocab.to_token_ids(y) for y in y_values]
+
+    decoder_inputs = []
+    decoder_targets = []
+    pad_id = self.cfg.decoder_vocab.bos_pad_id
+
+    for t in y_tokens_list:
+      padding_needed = self.cfg.decode_len - len(t)
+      # Input: [pad, t_1, ..., t_n, pad, ..., pad]
+      decoder_inputs.append([pad_id] + t + [pad_id] * padding_needed)
+      # Target: [t_1, ..., t_n, pad, ..., pad]
+      decoder_targets.append(t + [pad_id] * (padding_needed + 1))
+
+    decoder_out = {
+        'decoder_input': torch.tensor(decoder_inputs),
+        'decoder_target': torch.tensor(decoder_targets),
+    }
+    return self.convert_inputs(examples) | decoder_out
+
+  def _pad_or_truncate(self, token_ids: list[int]) -> list[int]:
+    encoder_pad_idx = self.cfg.encoder_vocab.pad_id
+    if len(token_ids) > self.cfg.max_input_len:
+      return token_ids[: self.cfg.max_input_len]
+    return token_ids + [encoder_pad_idx] * (
+        self.cfg.max_input_len - len(token_ids)
+    )
+
+
 class PyTorchModel(nn.Module, core.Model[Tensor]):
   """PyTorch implementation of a RegressLM."""
 
-  def __init__(
-      self,
-      encoder_vocab: vocabs.EncoderVocab[str],
-      decoder_vocab: vocabs.DecoderVocab[float],
-      max_input_len: int = 2048,
-      max_num_objs: int = 1,
-      z_loss_coef: float | None = None,
-      compile_model: bool = True,  # Turn off for tests.
-      **architecture_kwargs,
-  ):
+  def __init__(self, config: PyTorchModelConfig, compile_model: bool):
     super().__init__()
-    self.max_input_len = max_input_len
-    self.max_num_objs = max_num_objs
-    self.z_loss_coef = z_loss_coef
-
-    self.encoder_vocab = encoder_vocab
-    self.decoder_vocab = decoder_vocab
+    self.cfg = config
 
     self.encoder_decoder = architecture.EncoderDecoder(
-        encoder_vocab_size=len(self.encoder_vocab),
-        decoder_vocab_size=len(self.decoder_vocab),
-        encoder_pad_idx=self.encoder_vocab.pad_id,
-        max_encoder_len=self.max_input_len,
-        max_decoder_len=self.decode_len + 1,
-        **architecture_kwargs,
+        encoder_vocab_size=len(self.cfg.encoder_vocab),
+        decoder_vocab_size=len(self.cfg.decoder_vocab),
+        encoder_pad_idx=self.cfg.encoder_vocab.pad_id,
+        max_encoder_len=self.cfg.max_input_len,
+        max_decoder_len=self.cfg.decode_len + 1,
+        **self.cfg.architecture_kwargs,
     )
 
     if compile_model:
@@ -71,10 +137,6 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
 
   def to_device(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
     return {k: v.to(self.device) for k, v in batch.items()}
-
-  @property
-  def decode_len(self) -> int:
-    return self.max_num_objs * self.decoder_vocab.num_tokens_per_obj
 
   def compute_losses_and_metrics(
       self, examples: dict[str, Tensor]
@@ -89,19 +151,19 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     ce_loss_per_tokens = F.cross_entropy(
         logits.permute(0, 2, 1),
         targets,
-        ignore_index=self.decoder_vocab.bos_pad_id,
+        ignore_index=self.cfg.decoder_vocab.bos_pad_id,
         reduction='none',
     )
 
     # Average loss per non-padded token.
-    loss_mask = (targets != self.decoder_vocab.bos_pad_id).float()
+    loss_mask = (targets != self.cfg.decoder_vocab.bos_pad_id).float()
     num_tokens = loss_mask.sum(dim=1).clamp(min=1)
     loss_per_example = ce_loss_per_tokens.sum(dim=1) / num_tokens
 
-    if self.z_loss_coef is not None:
+    if self.cfg.z_loss_coef is not None:
       log_z = torch.logsumexp(logits, dim=-1)
-      z_loss_per_token = self.z_loss_coef * (log_z**2)
-      loss_mask = (targets != self.decoder_vocab.bos_pad_id).float()
+      z_loss_per_token = self.cfg.z_loss_coef * (log_z**2)
+      loss_mask = (targets != self.cfg.decoder_vocab.bos_pad_id).float()
       z_loss_per_example = (z_loss_per_token * loss_mask).sum(dim=1)
       loss_per_example = loss_per_example + z_loss_per_example
 
@@ -141,14 +203,14 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     # Initialize decoder input for the expanded batch, start with <pad>.
     current_tgt_ids = torch.full(
         (batch_size * num_samples, 1),
-        self.decoder_vocab.bos_pad_id,
+        self.cfg.decoder_vocab.bos_pad_id,
         dtype=torch.long,
         device=self.device,
     )
 
     # Store all generated token IDs for all sequences in the expanded batch
     generated_sequences_ids = torch.zeros(
-        (batch_size * num_samples, self.decode_len),
+        (batch_size * num_samples, self.cfg.decode_len),
         dtype=torch.long,
         device=self.device,
     )
@@ -158,9 +220,9 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
 
     def get_allowed_tokens(i: int, step_idx: int) -> list[int]:
       prev_tokens = generated_sequences_ids[i, :step_idx].tolist()
-      return self.decoder_vocab.possible_next_token_ids(prev_tokens)
+      return self.cfg.decoder_vocab.possible_next_token_ids(prev_tokens)
 
-    for step_idx in range(self.decode_len):
+    for step_idx in range(self.cfg.decode_len):
       # Get logits for the next token for all (B * num_samples) sequences
       # Shape: (B*S, V)
       logits = self.encoder_decoder.next_token_logits(
@@ -169,7 +231,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
 
       # Apply constraints using online computed mask
       curr_mask = torch.zeros(
-          (expanded_batch_size, len(self.decoder_vocab)), device=self.device
+          (expanded_batch_size, len(self.cfg.decoder_vocab)), device=self.device
       )
       parallel_fn = functools.partial(get_allowed_tokens, step_idx=step_idx)
       with futures.ThreadPoolExecutor() as executor:
@@ -187,21 +249,21 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       generated_sequences_ids[:, step_idx] = token_ids.squeeze(-1)
 
       # Prepare input for the next step, but only if not the last float token
-      if step_idx < self.decode_len - 1:
+      if step_idx < self.cfg.decode_len - 1:
         current_tgt_ids = torch.cat([current_tgt_ids, token_ids], dim=1)
 
     # Reshape outputs back to (B, num_samples, L_decode)
     final_decoded_ids = generated_sequences_ids.view(
-        batch_size, num_samples, self.decode_len
+        batch_size, num_samples, self.cfg.decode_len
     )
 
     # Compute equivalent floats.
     output_floats = np.empty(
-        (batch_size, num_samples, self.max_num_objs), dtype=object
+        (batch_size, num_samples, self.cfg.max_num_objs), dtype=object
     )
     for b in range(batch_size):
       for s_idx in range(num_samples):
-        output_floats[b, s_idx, :] = self.decoder_vocab.from_token_ids(
+        output_floats[b, s_idx, :] = self.cfg.decoder_vocab.from_token_ids(
             final_decoded_ids[b, s_idx, :].tolist()
         )
 
@@ -221,44 +283,11 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         log_probs, dim=2, index=dec_target.unsqueeze(-1)
     )
 
-    pad_mask = dec_target != self.decoder_vocab.bos_pad_id
+    pad_mask = dec_target != self.cfg.decoder_vocab.bos_pad_id
     true_log_probs_masked = true_log_probs.squeeze(-1) * pad_mask
     sequence_sum_log_probs = true_log_probs_masked.sum(dim=1)
     return sequence_sum_log_probs
 
-  def convert_inputs(
-      self, inputs: Sequence[core.ExampleInput]
-  ) -> dict[str, Tensor]:
-    strings = [example.x for example in inputs]
-    encoder_token_ids = [self.encoder_vocab.to_token_ids(s) for s in strings]
-    encoder_input = [self._pad_or_truncate(t) for t in encoder_token_ids]
-    return {'encoder_input': torch.tensor(encoder_input)}
-
-  def convert_examples(
-      self, examples: Sequence[core.Example]
-  ) -> dict[str, Tensor]:
-    y_values = [example.y for example in examples]
-    y_tokens_list = [self.decoder_vocab.to_token_ids(y) for y in y_values]
-
-    decoder_inputs = []
-    decoder_targets = []
-    pad_id = self.decoder_vocab.bos_pad_id
-
-    for t in y_tokens_list:
-      padding_needed = self.decode_len - len(t)
-      # Input: [pad, t_1, ..., t_n, pad, ..., pad]
-      decoder_inputs.append([pad_id] + t + [pad_id] * padding_needed)
-      # Target: [t_1, ..., t_n, pad, ..., pad]
-      decoder_targets.append(t + [pad_id] * (padding_needed + 1))
-
-    decoder_out = {
-        'decoder_input': torch.tensor(decoder_inputs),
-        'decoder_target': torch.tensor(decoder_targets),
-    }
-    return self.convert_inputs(examples) | decoder_out
-
-  def _pad_or_truncate(self, token_ids: list[int]) -> list[int]:
-    encoder_pad_idx = self.encoder_vocab.pad_id
-    if len(token_ids) > self.max_input_len:
-      return token_ids[: self.max_input_len]
-    return token_ids + [encoder_pad_idx] * (self.max_input_len - len(token_ids))
+  @functools.cached_property
+  def converter(self) -> core.Converter[Tensor]:
+    return self.cfg.make_converter()
