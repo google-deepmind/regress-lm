@@ -15,7 +15,6 @@
 """Pretraining class for RegressLM."""
 
 import collections
-import multiprocessing as mp
 from regress_lm import core
 from regress_lm.pytorch import model as pytorch_model
 import torch
@@ -41,7 +40,6 @@ class Pretrainer:
       validation_batch_size: int,
       is_distributed: bool = False,
       num_data_workers: int = 0,
-      multiprocessing_context: str | mp.context.BaseContext | None = None,
   ):
     """Initialises the Pretrainer with all hyperparameters."""
 
@@ -62,7 +60,6 @@ class Pretrainer:
         drop_last=False,
         collate_fn=self._model.convert_examples,
         sampler=self._train_sampler,
-        multiprocessing_context=multiprocessing_context,
     )
     self._val_dl = utils.data.DataLoader(
         dataset=validation_ds,
@@ -70,7 +67,6 @@ class Pretrainer:
         shuffle=False,
         num_workers=num_data_workers,
         collate_fn=self._model.convert_examples,
-        multiprocessing_context=multiprocessing_context,
     )
 
   def run_validation_epoch(self) -> dict[str, float]:
