@@ -47,8 +47,8 @@ class _TrainingModelWrapper(nn.Module):
 Parameters = Iterator[nn.Parameter]
 
 
-class Pretrainer:
-  """A class to encapsulate the RegressLM pretraining process.
+class Trainer:
+  """A class to encapsulate the RegressLM large-scale training process.
 
   NOTE: The caller is encouraged to still set `train()` or `eval()` explicitly
   on `training_wrapper` to ensure proper synchronization of states.
@@ -160,11 +160,11 @@ class Pretrainer:
     return self._global_step
 
   @property
-  def train_sampler(self) -> DistributedSampler | None:
+  def train_sampler(self) -> DistributedSampler[core.Example] | None:
     return self._train_sampler
 
   @property
-  def train_dl(self) -> utils.data.DataLoader:
+  def train_dl(self) -> utils.data.DataLoader[core.Example]:
     return self._train_dl
 
   @property
