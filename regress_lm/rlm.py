@@ -14,6 +14,7 @@
 
 """Very high-level class for users."""
 
+import functools
 from typing import Sequence
 import numpy as np
 from regress_lm import core
@@ -70,12 +71,15 @@ class RegressLM:
         compile_model=kwargs.get("compile_model", True)
     ).to(device)
 
-    optimizer = kwargs.get("optimizer", None) or optim.Adafactor(
-        filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4
-    )
+    optimizer_factory = kwargs.get(
+        "optimizer_factory", None
+    ) or functools.partial(optim.Adafactor, lr=1e-4)
+
     fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
         model,
-        optimizer=optimizer,
+        optimizer=optimizer_factory(
+            filter(lambda p: p.requires_grad, model.parameters()),
+        ),
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),
@@ -122,12 +126,15 @@ class RegressLM:
         compile_model=kwargs.get("compile_model", True)
     ).to(device)
 
-    optimizer = kwargs.get("optimizer", None) or optim.Adafactor(
-        filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4
-    )
+    optimizer_factory = kwargs.get(
+        "optimizer_factory", None
+    ) or functools.partial(optim.Adafactor, lr=1e-4)
+
     fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
         model,
-        optimizer=optimizer,
+        optimizer=optimizer_factory(
+            filter(lambda p: p.requires_grad, model.parameters()),
+        ),
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),

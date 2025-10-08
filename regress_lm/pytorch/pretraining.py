@@ -115,9 +115,9 @@ class Pretrainer:
         total_items += bsz
 
     val_metrics = {
-        f"validation_{k}": v / total_items for k, v in metric_sums.items()
+        f'validation_{k}': v / total_items for k, v in metric_sums.items()
     }
-    val_metrics["validation_loss"] = total_loss / total_items
+    val_metrics['validation_loss'] = total_loss / total_items
     return val_metrics
 
   def run_train_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
@@ -133,9 +133,27 @@ class Pretrainer:
     self._scheduler.step()
     self._global_step += 1
 
-    train_metrics = {f"train_{k}": v.item() for k, v in metrics.items()}
-    train_metrics["train_loss"] = loss.item()
+    train_metrics = {f'train_{k}': v.item() for k, v in metrics.items()}
+    train_metrics['train_loss'] = loss.item()
     return train_metrics
+
+  def save_checkpoint(self, checkpoint_path: str) -> None:
+    """Saves the current training state to a checkpoint file."""
+    state = {
+        'model_state': self.model.state_dict(),
+        'optimizer_state': self._optimizer.state_dict(),
+        'scheduler_state': self._scheduler.state_dict(),
+        'global_step': self._global_step,
+    }
+    torch.save(state, checkpoint_path)
+
+  def load_checkpoint(self, checkpoint_path: str) -> None:
+    """Loads the training state from a checkpoint file."""
+    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    self.model.load_state_dict(checkpoint['model_state'])
+    self._optimizer.load_state_dict(checkpoint['optimizer_state'])
+    self._scheduler.load_state_dict(checkpoint['scheduler_state'])
+    self._global_step = checkpoint['global_step']
 
   @property
   def global_step(self) -> int:
@@ -169,3 +187,7 @@ class Pretrainer:
   @property
   def training_wrapper(self) -> nn.Module:
     return self._training_wrapper
+
+  @property
+  def current_epoch(self) -> int:
+    return self._global_step // len(self.train_dl)

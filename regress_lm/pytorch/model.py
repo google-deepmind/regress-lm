@@ -43,7 +43,7 @@ class PyTorchModelConfig:
   decoder_vocab: vocabs.DecoderVocab[float]
 
   # Core Dimensions
-  max_input_len: int = 2048
+  max_input_len: int
   max_num_objs: int = 1
 
   architecture_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
