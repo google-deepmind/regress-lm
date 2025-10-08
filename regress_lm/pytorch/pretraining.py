@@ -28,7 +28,7 @@ DistributedSampler = torch.utils.data.distributed.DistributedSampler
 PyTorchModel = pytorch_model.PyTorchModel
 
 
-class DistributedTrainingWrapper(nn.Module):
+class _TrainingModelWrapper(nn.Module):
   """A wrapper for the PyTorchModel that enables distributed training.
 
   nn.parallel.DistributedDataParallel only activates when calling forward().
@@ -48,7 +48,11 @@ Parameters = Iterator[nn.Parameter]
 
 
 class Pretrainer:
-  """A class to encapsulate the RegressLM pretraining process."""
+  """A class to encapsulate the RegressLM pretraining process.
+
+  NOTE: The caller is encouraged to still set `train()` or `eval()` explicitly
+  on `training_wrapper` to ensure proper synchronization of states.
+  """
 
   def __init__(
       self,
@@ -59,24 +63,23 @@ class Pretrainer:
       validation_ds: utils.data.Dataset[core.Example],
       batch_size: int,
       validation_batch_size: int | None = None,
-      distributed_rank: int | None = None,
+      is_distributed: bool = False,
       num_data_workers: int = 0,
   ):
-    self._model = model
-
-    self._ddp_model = DistributedTrainingWrapper(model)
-    if distributed_rank is not None:
-      self._ddp_model = nn.parallel.DistributedDataParallel(
-          self._ddp_model, device_ids=[distributed_rank]
+    self._model = model  # NOTE: Only used as a template if distributed.
+    self._training_wrapper = _TrainingModelWrapper(self._model)
+    if is_distributed:
+      self._training_wrapper = nn.parallel.DistributedDataParallel(
+          self._training_wrapper
       )
 
-    self._optimizer = optimizer_factory(self._ddp_model.parameters())
+    self._optimizer = optimizer_factory(self._training_wrapper.parameters())
     self._scheduler = scheduler_factory(self._optimizer)
     self._global_step = 0
 
     # Create dataloaders for training and validation.
     self._train_sampler = (
-        DistributedSampler(train_ds) if distributed_rank is not None else None
+        DistributedSampler(train_ds) if is_distributed else None
     )
     self._train_dl = utils.data.DataLoader(
         dataset=train_ds,
@@ -97,13 +100,13 @@ class Pretrainer:
 
   def run_validation_epoch(self) -> dict[str, float]:
     """Runs the validation loop and returns metrics."""
-    self._ddp_model.eval()
+    self._training_wrapper.eval()
     total_loss, total_items = 0.0, 0
     metric_sums: dict[str, float] = collections.defaultdict(float)
 
     with torch.no_grad():
       for val_batch in self._val_dl:
-        losses_p_ex, metrics = self._ddp_model.forward(val_batch)
+        losses_p_ex, metrics = self.model.compute_losses_and_metrics(val_batch)
         bsz = next(iter(val_batch.values())).size(0)
 
         total_loss += losses_p_ex.sum().item()
@@ -119,10 +122,10 @@ class Pretrainer:
 
   def run_train_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
     """Runs train step and returns metrics."""
-    self._ddp_model.train()
+    self._training_wrapper.train()
     self._optimizer.zero_grad(set_to_none=True)
 
-    losses_per_example, metrics = self._ddp_model.forward(batch)
+    losses_per_example, metrics = self._training_wrapper.forward(batch)
     loss = losses_per_example.mean()
     loss.backward()
 
@@ -153,3 +156,16 @@ class Pretrainer:
   @property
   def scheduler(self) -> lr_scheduler.LRScheduler:
     return self._scheduler
+
+  @property
+  def model(self) -> PyTorchModel:
+    """Returns the original model, accounting for distributed wrapping."""
+    if isinstance(self._training_wrapper, nn.parallel.DistributedDataParallel):
+      # We must return it from wrapper's module, which contains true weights.
+      return self._training_wrapper.module.model  # pytype:disable=attribute-error
+    else:
+      return self._model
+
+  @property
+  def training_wrapper(self) -> nn.Module:
+    return self._training_wrapper
