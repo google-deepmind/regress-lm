@@ -44,9 +44,8 @@ class PyTorchModelConfig:
 
   # Core Dimensions
   max_input_len: int
+  architecture_kwargs: dict[str, Any]
   max_num_objs: int = 1
-
-  architecture_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
 
   # Other settings
   z_loss_coef: float | None = None
