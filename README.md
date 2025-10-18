@@ -38,7 +38,8 @@ pip install ".[extras]"
 ```
 
 ## Usage <a name="usage"></a>
-There are two main stages: **inference** and **pretraining** (optional).
+There are two main stages: **inference** and **pretraining** (optional but
+recommended).
 
 ## Inference
 The intended use-case is to import a RegressLM class, which can decode
