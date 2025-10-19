@@ -245,7 +245,7 @@ class SentencePieceVocab(EncoderVocab[str]):
   @classmethod
   def from_corpus(
       cls,
-      corpus_path: str | pathlib.Path,
+      corpus_path: str | pathlib.Path | list[str | pathlib.Path],
       vocab_size: int = 8192,
       model_prefix: str | pathlib.Path | None = None,
       sentencepiece_trainer_kwargs: dict[str, str] | None = None,
@@ -253,6 +253,9 @@ class SentencePieceVocab(EncoderVocab[str]):
     """Trains a SentencePiece vocab from the given corpus."""
     if model_prefix is None:
       model_prefix = pathlib.Path("/tmp/trained_sentencepiece")
+
+    if isinstance(corpus_path, list):
+      corpus_path = ",".join(map(str, corpus_path))
 
     trainer_args = {
         "input": str(corpus_path),
