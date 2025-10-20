@@ -156,6 +156,7 @@ If you find this project useful, please consider citing the relevant works:
       archivePrefix={arXiv},
       primaryClass={cs.CL},
       url={https://arxiv.org/abs/2509.26476},
+      journal={arXiv preprint arXiv:2509.26476},
 }
 
 @article{performance_prediction,
