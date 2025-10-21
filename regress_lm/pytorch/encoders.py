@@ -21,6 +21,8 @@ import functools
 import math
 from typing import Callable, Literal
 from absl import logging
+# The following import is needed for loading T5Gemma models.
+import safetensors.torch  # pylint: disable=unused-import
 import torch
 from torch import nn
 from torch.nn import functional as F
