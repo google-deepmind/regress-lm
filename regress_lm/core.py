@@ -23,7 +23,7 @@ import numpy as np
 # High-level example.
 @dataclasses.dataclass
 class ExampleInput:
-  x: str
+  x: str | Sequence[str]
 
 
 @dataclasses.dataclass

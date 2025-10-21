@@ -72,10 +72,15 @@ class PyTorchConverter(core.Converter[Tensor]):
   def convert_inputs(
       self, inputs: Sequence[core.ExampleInput]
   ) -> dict[str, Tensor]:
-    strings = [example.x for example in inputs]
-    encoder_token_ids = [
-        self.cfg.encoder_vocab.to_token_ids(s) for s in strings
+    x_values = [example.x for example in inputs]
+    x_values_list = [
+        ' + '.join(sublist) if isinstance(sublist, list) else sublist
+        for sublist in x_values
     ]
+    with futures.ThreadPoolExecutor() as executor:
+      encoder_token_ids = list(
+          executor.map(self.cfg.encoder_vocab.to_token_ids, x_values_list)
+      )
     encoder_input = [self._pad_or_truncate(t) for t in encoder_token_ids]
     return {'encoder_input': torch.tensor(encoder_input)}
 
