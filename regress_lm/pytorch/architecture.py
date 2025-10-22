@@ -66,23 +66,23 @@ class EncoderDecoder(nn.Module):
   ):
     super().__init__()
     self.encoder_pad_idx = encoder_pad_idx
-    self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, d_model)
     self.encoder = encoder_type.make(
         vocab_size=encoder_vocab_size,
         d_model=d_model,
-        max_encoder_len=max_encoder_len,
         num_layers=num_encoder_layers,
+        max_encoder_len=max_encoder_len,
         **(additional_encoder_kwargs or {}),
     )
 
-    # We use standard positional embeddings on decoder.
+    # We use the hidden_dim of the encoder for the decoder.
+    self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, self.encoder.hidden_dim)
     self.decoder_positional_encoding = _PositionalEncoding(
-        d_model, max_len=max_decoder_len, dropout=0.0
+        self.encoder.hidden_dim, max_len=max_decoder_len, dropout=0.0
     )
     decoder_layer = nn.TransformerDecoderLayer(
-        d_model=d_model,
+        self.encoder.hidden_dim,
         nhead=8,
-        dim_feedforward=4 * d_model,
+        dim_feedforward=4 * self.encoder.hidden_dim,
         dropout=0.0,
         batch_first=True,
         norm_first=True,
@@ -90,8 +90,7 @@ class EncoderDecoder(nn.Module):
     self.decoder = nn.TransformerDecoder(
         decoder_layer, num_layers=num_decoder_layers
     )
-
-    self.generator = nn.Linear(d_model, decoder_vocab_size)
+    self.generator = nn.Linear(self.encoder.hidden_dim, decoder_vocab_size)
 
   def _generate_causal_mask(self, sz: int) -> torch.Tensor:
     return torch.triu(torch.full((sz, sz), float("-inf")), diagonal=1)

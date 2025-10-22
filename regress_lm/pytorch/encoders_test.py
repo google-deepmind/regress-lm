@@ -231,7 +231,7 @@ class T5GemmaEncoderTest(parameterized.TestCase):
     """Tests that the T5Gemma encoder output has the correct shape."""
     batch_size = 2
     seq_len = 20
-    d_model = 512  # For "google/t5gemma-s-s-prefixlm"
+    d_model = 512
 
     src_ids = torch.randint(0, 1000, (batch_size, seq_len), dtype=torch.long)
 
@@ -240,7 +240,7 @@ class T5GemmaEncoderTest(parameterized.TestCase):
     src_key_padding_mask[0, 15:] = True
     src_key_padding_mask[1, 18:] = True
 
-    encoder = encoders.T5GemmaEncoder()
+    encoder = encoders.T5GemmaEncoder(model_name="google/t5gemma-s-s-prefixlm")
 
     # --- 1. Test with padding mask ---
     output = encoder(src_ids, src_key_padding_mask)

@@ -38,6 +38,12 @@ except ImportError:
 class BaseEncoder(nn.Module, abc.ABC):
   """Abstract base class for all encoder models."""
 
+  @property
+  @abc.abstractmethod
+  def hidden_dim(self) -> int:
+    """Hidden dimension of the encoder output, needed for decoder."""
+    raise NotImplementedError("Subclasses must implement 'hidden_dim'.")
+
   @abc.abstractmethod
   def forward(
       self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
@@ -216,6 +222,7 @@ class VanillaEncoder(BaseEncoder):
   ):
     super().__init__()
     self.embedding = nn.Embedding(vocab_size, d_model)
+    self.d_model = d_model
     self.rotary_pos_emb = _RotaryPositionalEmbedding(
         d_model // nhead, max_len=max_len
     )
@@ -240,6 +247,10 @@ class VanillaEncoder(BaseEncoder):
       )
     return self.norm(output)
 
+  @property
+  def hidden_dim(self) -> int:
+    return self.d_model
+
 
 class MambaEncoder(BaseEncoder):
   """Encoder built from a stack of Mamba blocks."""
@@ -249,6 +260,7 @@ class MambaEncoder(BaseEncoder):
   ):
     super().__init__()
     self.embedding = nn.Embedding(vocab_size, d_model)
+    self.d_model = d_model
     self.layers = nn.ModuleList([
         nn.Sequential(
             nn.LayerNorm(d_model),
@@ -269,6 +281,10 @@ class MambaEncoder(BaseEncoder):
     if src_key_padding_mask is not None:
       output = output.masked_fill(src_key_padding_mask.unsqueeze(-1), 0.0)
     return self.norm(output)
+
+  @property
+  def hidden_dim(self) -> int:
+    return self.d_model
 
 
 def _sample_orthogonal_q(
@@ -508,6 +524,7 @@ class PerformerEncoder(BaseEncoder):
   ):
     super().__init__()
     self.embedding = nn.Embedding(vocab_size, d_model)
+    self.d_model = d_model
     layer = _PerformerEncoderLayer(
         d_model,
         nhead,
@@ -538,6 +555,10 @@ class PerformerEncoder(BaseEncoder):
     for layer in self.layers:
       output = layer(output, src_key_padding_mask)
     return self.norm(output)
+
+  @property
+  def hidden_dim(self) -> int:
+    return self.d_model
 
 
 class T5GemmaEncoder(BaseEncoder):
@@ -570,6 +591,10 @@ class T5GemmaEncoder(BaseEncoder):
         input_ids=src_ids, attention_mask=attention_mask, return_dict=True
     )
     return enc_out.last_hidden_state
+
+  @property
+  def hidden_dim(self) -> int:
+    return self.encoder.config.hidden_size
 
 
 @enum.unique
