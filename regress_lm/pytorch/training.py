@@ -100,6 +100,7 @@ class Trainer:
 
   def run_validation_epoch(self) -> dict[str, float]:
     """Runs the validation loop and returns metrics."""
+    self._optimizer.zero_grad(set_to_none=True)  # Free up memory.
     self._training_wrapper.eval()
     total_loss, total_items = 0.0, 0
     metric_sums: dict[str, float] = collections.defaultdict(float)
