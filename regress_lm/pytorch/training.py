@@ -63,12 +63,12 @@ class Trainer:
       validation_ds: utils.data.Dataset[core.Example],
       batch_size: int,
       validation_batch_size: int | None = None,
-      is_distributed: bool = False,
+      use_ddp: bool = False,
       num_data_workers: int = 0,
   ):
     self._model = model  # NOTE: Only used as a template if distributed.
     self._training_wrapper = _TrainingModelWrapper(self._model)
-    if is_distributed:
+    if use_ddp:
       self._training_wrapper = nn.parallel.DistributedDataParallel(
           self._training_wrapper
       )
@@ -78,13 +78,17 @@ class Trainer:
     self._global_step = 0
 
     # Create dataloaders for training and validation.
-    self._train_sampler = (
-        DistributedSampler(train_ds) if is_distributed else None
-    )
+    train_is_iter = isinstance(train_ds, utils.data.IterableDataset)
+    if use_ddp and not train_is_iter:
+      # No need to split dataset if it's an infinite iterator (e.g. reverb).
+      self._train_sampler = DistributedSampler(train_ds)
+    else:
+      self._train_sampler = None
+
     self._train_dl = utils.data.DataLoader(
         dataset=train_ds,
         batch_size=batch_size,
-        shuffle=(self._train_sampler is None),
+        shuffle=(self._train_sampler is None and not train_is_iter),
         num_workers=num_data_workers,
         drop_last=False,
         sampler=self._train_sampler,
@@ -93,7 +97,6 @@ class Trainer:
     self._val_dl = utils.data.DataLoader(
         dataset=validation_ds,
         batch_size=validation_batch_size or batch_size,
-        shuffle=False,
         num_workers=num_data_workers,
         collate_fn=self._model.converter.convert_examples,
     )
@@ -190,5 +193,7 @@ class Trainer:
     return self._training_wrapper
 
   @property
-  def current_epoch(self) -> int:
+  def current_epoch(self) -> int | None:
+    if isinstance(self._train_dl.dataset, utils.data.IterableDataset):
+      return None
     return self._global_step // len(self.train_dl)

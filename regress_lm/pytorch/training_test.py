@@ -57,7 +57,7 @@ class TrainingTest(absltest.TestCase):
         train_ds=ds,
         validation_ds=ds,
         batch_size=2,
-        is_distributed=False,  # Can't test distributed training.
+        use_ddp=False,  # Can't test distributed training.
         num_data_workers=2,
     )
 
