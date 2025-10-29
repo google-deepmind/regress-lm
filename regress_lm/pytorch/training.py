@@ -63,11 +63,13 @@ class Trainer:
       validation_ds: utils.data.Dataset[core.Example],
       batch_size: int,
       validation_batch_size: int | None = None,
+      grad_acc_steps: int = 1,
       use_ddp: bool = False,
       num_data_workers: int = 0,
   ):
     self._model = model  # NOTE: Only used as a template if distributed.
     self._training_wrapper = _TrainingModelWrapper(self._model)
+    self._grad_acc_steps = grad_acc_steps
     if use_ddp:
       self._training_wrapper = nn.parallel.DistributedDataParallel(
           self._training_wrapper
@@ -127,18 +129,21 @@ class Trainer:
   def run_train_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
     """Runs train step and returns metrics."""
     self._training_wrapper.train()
-    self._optimizer.zero_grad(set_to_none=True)
 
     losses_per_example, metrics = self._training_wrapper.forward(batch)
     loss = losses_per_example.mean()
+    loss /= self._grad_acc_steps
     loss.backward()
 
-    self._optimizer.step()
-    self._scheduler.step()
+    if (self._global_step + 1) % self._grad_acc_steps == 0:
+      self._optimizer.step()
+      self._scheduler.step()
+      self._optimizer.zero_grad(set_to_none=True)
+
     self._global_step += 1
 
     train_metrics = {f'train_{k}': v.item() for k, v in metrics.items()}
-    train_metrics['train_loss'] = loss.item()
+    train_metrics['train_loss'] = loss.item() * self._grad_acc_steps
     return train_metrics
 
   def save_checkpoint(self, checkpoint_path: str) -> None:
