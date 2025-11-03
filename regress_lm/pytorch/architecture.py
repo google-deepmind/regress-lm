@@ -21,10 +21,12 @@ import torch
 from torch import nn
 
 
+# Backends attempted in order.
 SPD_BACKENDS = [
     nn.attention.SDPBackend.FLASH_ATTENTION,
-    nn.attention.SDPBackend.MATH,
+    nn.attention.SDPBackend.CUDNN_ATTENTION,
     nn.attention.SDPBackend.EFFICIENT_ATTENTION,
+    nn.attention.SDPBackend.MATH,  # Last resort, materializes whole matrix.
 ]
 
 
@@ -98,7 +100,7 @@ class EncoderDecoder(nn.Module):
   def forward(self, src: torch.Tensor, tgt_input: torch.Tensor) -> torch.Tensor:
     src_padding_mask = src == self.encoder_pad_idx
 
-    with nn.attention.sdpa_kernel(SPD_BACKENDS):  # Flash attention
+    with nn.attention.sdpa_kernel(SPD_BACKENDS):
       memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
       decoder_output = self.decoder(
           tgt=self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input)),
@@ -111,7 +113,7 @@ class EncoderDecoder(nn.Module):
   def encode(self, src: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Encodes the source sequence."""
     src_padding_mask = src == self.encoder_pad_idx
-    with nn.attention.sdpa_kernel(SPD_BACKENDS):  # Flash attention
+    with nn.attention.sdpa_kernel(SPD_BACKENDS):
       memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
     return memory, src_padding_mask
 
@@ -127,7 +129,7 @@ class EncoderDecoder(nn.Module):
     )
     tgt = self.decoder_positional_encoding(self.tgt_tok_emb(current_tgt_seq))
 
-    with nn.attention.sdpa_kernel(SPD_BACKENDS):  # Flash attention
+    with nn.attention.sdpa_kernel(SPD_BACKENDS):
       decoder_output_all_steps = self.decoder(
           tgt=tgt,
           memory=memory,
