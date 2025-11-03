@@ -44,9 +44,11 @@ class _EarlyStoppingTracker:
   def update(self, current_loss: float, model: nn.Module):
     """Updates the tracker with the latest validation loss."""
     if current_loss < self.best_loss:
-      # We have a new best loss, so we save the model and reset the counter.
+      # We have a new best loss, so we save the weights and reset the counter.
       self.best_loss = current_loss
-      self.best_state = model.state_dict()
+      self.best_state = {
+          k: v.to('cpu').clone().detach() for k, v in model.state_dict().items()
+      }
       self.epochs_without_improvement = 0
     else:
       # The loss did not improve, so we increment the counter.
