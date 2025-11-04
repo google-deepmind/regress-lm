@@ -18,8 +18,7 @@
 from concurrent import futures
 import dataclasses
 import functools
-from typing import Any
-from typing import Sequence
+from typing import Any, Sequence
 import numpy as np
 from regress_lm import core
 from regress_lm import vocabs
@@ -256,7 +255,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         batch_size, num_samples, self.cfg.decode_len
     )
 
-    # Compute equivalent floats.
+    # Compute equivalent floats. Object type is used in case of special values.
     output_floats = np.empty(
         (batch_size, num_samples, self.cfg.max_num_objs), dtype=object
     )
