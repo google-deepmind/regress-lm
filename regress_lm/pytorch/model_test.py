@@ -182,6 +182,30 @@ class ModelTest(parameterized.TestCase):
     # Now 2 objectives for last axis.
     self.assertEqual(tuple(output_floats.shape), (2, 1024, 2))
 
+  def test_multi_input(self):
+    tokenizer = self.decoder_tokenizer
+    cfg = dataclasses.replace(
+        self.cfg,
+        decoder_vocab=vocabs.DecoderVocab(tokenizer),
+        max_input_len=6,
+    )
+    model = cfg.make_model(compile_model=False)
+
+    examples = [
+        core.ExampleInput(x=['hello']),
+        core.ExampleInput(x=['hello', 'world world world world']),
+    ]
+    batch = model.converter.convert_inputs(examples)
+
+    np.testing.assert_array_equal(
+        batch['encoder_input'], [[2, 0, 0, 0, 0, 0], [2, 1, 3, 3, 3, 3]]
+    )
+    decoded_ids, output_floats = model.decode(batch, num_samples=16)
+
+    self.assertEqual(tuple(decoded_ids.shape), (2, 16, 6))
+    self.assertEqual(cfg.decode_len, 6)
+    self.assertEqual(tuple(output_floats.shape), (2, 16, 1))
+
   def test_gradient_accumulation_equivalence(self):
     torch.manual_seed(123)
 
