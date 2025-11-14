@@ -19,10 +19,10 @@ vocabulary will assign integer IDs.
 """
 
 import abc
+import functools
 import math
 import re
 from typing import Generic, TypeVar
-
 import numpy as np
 import ordered_set
 
@@ -124,12 +124,12 @@ class P10Tokenizer(DecoderTokenizer[float]):
       tokens = [_to_token(s) for s in range(0, 10)]
     return OrderedSet(tokens)
 
-  @property
+  @functools.cached_property
   def _max_abs_val(self) -> float:
     """Largest representable positive number."""
     return float(self.num_digits * '9') * (10.0**self.exponent_range)
 
-  @property
+  @functools.cached_property
   def _min_abs_val(self) -> float:
     """Smallest representable positive number."""
     min_mantissa = float('1' + (self.num_digits - 1) * '0')
@@ -225,6 +225,9 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
     return OrderedSet(tokens)
 
   def to_tokens(self, f: float, /) -> list[str]:
+    if abs(f) > self._max_abs_val:  # Round during overflows.
+      f = math.copysign(self._max_abs_val, f)
+
     sign = '+' if f >= 0 else '-'
     abs_f = abs(f)
     exponent = math.floor(np.log(abs_f) / np.log(self.base)) if abs_f > 0 else 0
@@ -233,8 +236,6 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
     abs_exponent = abs(exponent)
 
     e = np.base_repr(abs_exponent, base=self.base)
-    if len(e) > self.num_exponent_digits and exponent_sign == '+':
-      raise ValueError(f'Overflow: Exponent {abs_exponent} too large.')
     if len(e) > self.num_exponent_digits and exponent_sign == '-':
       # Underflow.
       all_zeros = ['0'] * (self.num_exponent_digits + self.num_mantissa_digits)
@@ -273,6 +274,16 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
     mantissa = mantissa_unscaled / self.base ** (self.num_mantissa_digits - 1)
 
     return sign * (self.base**exponent) * mantissa
+
+  @functools.cached_property
+  def _max_abs_val(self) -> float:
+    """Largest representable positive number."""
+    max_exponent = self.base**self.num_exponent_digits - 1
+    max_mantissa_unscaled = self.base**self.num_mantissa_digits - 1
+    max_mantissa = max_mantissa_unscaled / self.base ** (
+        self.num_mantissa_digits - 1
+    )
+    return (self.base**max_exponent) * max_mantissa
 
 
 class NormalizedTokenizer(DecoderTokenizer[float]):

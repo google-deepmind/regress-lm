@@ -61,7 +61,7 @@ class RegressLM:
         encoder_vocab=kwargs.get("encoder_vocab")
         or vocabs.SentencePieceVocab.from_t5(),
         decoder_vocab=kwargs.get("decoder_vocab")
-        or vocabs.DecoderVocab(tokenizers.P10Tokenizer()),
+        or vocabs.DecoderVocab(tokenizers.IEEEFloatTokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
         architecture_kwargs=architecture_kwargs,
@@ -112,7 +112,7 @@ class RegressLM:
         encoder_vocab=vocabs.HuggingFaceVocab(model_name)
         or vocabs.SentencePieceVocab.from_t5(),
         decoder_vocab=kwargs.get("decoder_vocab")
-        or vocabs.DecoderVocab(tokenizers.P10Tokenizer()),
+        or vocabs.DecoderVocab(tokenizers.IEEEFloatTokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
         architecture_kwargs=architecture_kwargs,
