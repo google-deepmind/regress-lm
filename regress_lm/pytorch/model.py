@@ -111,7 +111,11 @@ class PyTorchConverter(core.Converter[Tensor]):
 
 
 class PyTorchModel(nn.Module, core.Model[Tensor]):
-  """PyTorch implementation of a RegressLM."""
+  """PyTorch implementation of a RegressLM.
+
+  NOTE: External callers are responsible for train() and eval() modes which deal
+  with batchnorm and dropout.
+  """
 
   def __init__(self, config: PyTorchModelConfig, compile_model: bool):
     super().__init__()
@@ -175,7 +179,6 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       num_samples: int,
       temperature: float = 1.0,
   ) -> tuple[Tensor, np.ndarray]:
-    self.encoder_decoder.eval()
     inputs = self.to_device(inputs)
 
     encoder_input = inputs['encoder_input']  # (B, L_src)
@@ -268,7 +271,6 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     return final_decoded_ids, output_floats
 
   def log_prob(self, examples: dict[str, Tensor]) -> Tensor:
-    self.encoder_decoder.eval()
     examples = self.to_device(examples)
     enc_input = examples['encoder_input']
     dec_input = examples['decoder_input']

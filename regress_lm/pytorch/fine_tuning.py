@@ -15,8 +15,9 @@
 """PyTorch implementation of a local finetuner."""
 
 import math
-from typing import Sequence, cast
+from typing import Callable, Iterator, Sequence, cast
 import numpy as np
+import peft
 from regress_lm import core
 from regress_lm.pytorch import data_utils
 import torch
@@ -36,7 +37,7 @@ class _EarlyStoppingTracker:
         None, early stopping is disabled.
     """
     self.patience = patience
-    self.best_loss = float('inf')
+    self.best_loss = float("inf")
     self.best_state = None
     # Counter for epochs without improvement.
     self.epochs_without_improvement = 0
@@ -47,7 +48,7 @@ class _EarlyStoppingTracker:
       # We have a new best loss, so we save the weights and reset the counter.
       self.best_loss = current_loss
       self.best_state = {
-          k: v.to('cpu').clone().detach() for k, v in model.state_dict().items()
+          k: v.to("cpu").clone().detach() for k, v in model.state_dict().items()
       }
       self.epochs_without_improvement = 0
     else:
@@ -61,24 +62,36 @@ class _EarlyStoppingTracker:
     return self.epochs_without_improvement >= self.patience
 
 
+Parameters = Iterator[nn.Parameter]
+
+# TODO: Does this match all param names in our model?
+DEFAULT_LORA_TARGET_MODULES = ("q_proj", "v_proj", "k_proj", "out_proj")
+
+
 class PyTorchFineTuner(core.FineTuner):
-  """PyTorch implementation of a local finetuner."""
+  """Performs standard full fine-tuning, updating all model weights in-place."""
 
   def __init__(
       self,
       model: core.Model[torch.Tensor],
-      optimizer: optim.Optimizer,
+      optimizer_factory: Callable[[Parameters], optim.Optimizer],
       *,
       max_epochs: int = 100,
       batch_size: int | None = None,
       batch_size_per_device: int | None = None,
       patience: int | None = 1,
+      # LoRA-specific args.
+      use_lora: bool = False,
+      lora_r: int = 8,
+      lora_alpha: int = 16,
+      lora_dropout: float = 0.0,
+      target_modules: Sequence[str] = DEFAULT_LORA_TARGET_MODULES,
   ):
     """Initializes the fine-tuner.
 
     Args:
       model: The PyTorch model / nn.Module to be fine-tuned.
-      optimizer: An optional PyTorch optimizer.
+      optimizer_factory: Factory method for creating the optimizer.
       max_epochs: The maximum number of epochs to train for.
       batch_size: The desired *effective* batch size. If None, performs
         full-batch gradient descent (uses the entire dataset as one batch).
@@ -87,13 +100,36 @@ class PyTorchFineTuner(core.FineTuner):
         will be used automatically.
       patience: The number of epochs to wait for improvement before early
         stopping. If None, early stopping is disabled.
+      use_lora: Performs PEFT using LoRA.
+      lora_r: The rank of LoRA.
+      lora_alpha: The alpha of LoRA.
+      lora_dropout: The dropout of LoRA.
+      target_modules: The target modules of LoRA.
     """
     self.model = cast(nn.Module, model)
-    self.optimizer = optimizer
+    self.optimizer_factory = optimizer_factory
     self.max_epochs = max_epochs
     self.batch_size = batch_size
     self.batch_size_per_device = batch_size_per_device
     self.patience = patience
+
+    if use_lora:
+      self.lora_config = peft.LoraConfig(
+          r=lora_r,
+          lora_alpha=lora_alpha,
+          lora_dropout=lora_dropout,
+          target_modules=target_modules,
+          bias="none",
+      )
+      self.lora_wrapper = peft.get_peft_model(model, self.lora_config)
+      self.optimizer = optimizer_factory(self.lora_wrapper.parameters())
+    else:
+      self.lora_wrapper = None
+      self.optimizer = optimizer_factory(self.model.parameters())
+
+  @property
+  def target_model(self) -> nn.Module:
+    return self.lora_wrapper or self.model
 
   def fine_tune(
       self,
@@ -114,8 +150,10 @@ class PyTorchFineTuner(core.FineTuner):
       micro_batch_size = min(effective_batch_size, self.batch_size_per_device)
     grad_acc_steps = math.ceil(effective_batch_size / micro_batch_size)
 
-    train_tensors = self.model.converter.convert_examples(examples)
-    valid_tensors = self.model.converter.convert_examples(validation_examples)
+    train_tensors = self.target_model.converter.convert_examples(examples)
+    valid_tensors = self.target_model.converter.convert_examples(
+        validation_examples
+    )
 
     train_dl = utils.data.DataLoader(
         data_utils.DictTensorDataset(train_tensors),
@@ -132,23 +170,32 @@ class PyTorchFineTuner(core.FineTuner):
     # Perform an initial validation run before training
     tracker = _EarlyStoppingTracker(patience=self.patience)
     initial_val_loss = self._run_validation_epoch(valid_dl)
-    tracker.update(initial_val_loss, self.model)
+    tracker.update(initial_val_loss, self.target_model)
 
     for _ in range(self.max_epochs):
       self._run_training_epoch(train_dl, grad_acc_steps)
       val_loss = self._run_validation_epoch(valid_dl)
-      tracker.update(val_loss, self.model)
+      tracker.update(val_loss, self.target_model)
       if tracker.should_stop():
         break
 
     if tracker.best_state:
-      self.model.load_state_dict(tracker.best_state)
+      self.target_model.load_state_dict(tracker.best_state)
+
+    if self.lora_wrapper:
+      # Pushes LoRA weights into self.model and allow further fine-tuning.
+      state = self.optimizer.state_dict()
+      self.lora_wrapper.merge_and_unload()
+      self.lora_wrapper = peft.get_peft_model(self.model, self.lora_config)
+      self.optimizer = self.optimizer_factory(self.lora_wrapper.parameters())
+      # Might not work, different param keys.
+      self.optimizer.load_state_dict(state)
 
   def _run_training_epoch(
       self, train_dl: utils.data.DataLoader, grad_acc_steps: int
   ):
     """Runs a single training epoch with gradient accumulation."""
-    self.model.train()
+    self.target_model.train()
     self.optimizer.zero_grad()
 
     for i, batch in enumerate(train_dl):
@@ -158,7 +205,7 @@ class PyTorchFineTuner(core.FineTuner):
         self.optimizer.step()
         self.optimizer.zero_grad()
 
-    # Final step for any remaining gradients
+    # Final step for any remaining gradients.
     if len(train_dl) % grad_acc_steps != 0:
       self.optimizer.step()
       self.optimizer.zero_grad()
@@ -166,18 +213,15 @@ class PyTorchFineTuner(core.FineTuner):
   def _forward_backward_pass(
       self, batch: dict[str, torch.Tensor], grad_acc_steps: int
   ) -> None:
-    losses_per_example, _ = self.model.compute_losses_and_metrics(batch)
-    loss = losses_per_example.mean()
-    scaled_loss = loss / grad_acc_steps
-    scaled_loss.backward()
+    losses, _ = self.target_model.compute_losses_and_metrics(batch)
+    loss = losses.mean()
+    (loss / grad_acc_steps).backward()
 
   def _run_validation_epoch(self, valid_dl: utils.data.DataLoader) -> float:
-    self.model.eval()
+    self.target_model.eval()
     all_val_losses = []
-
     with torch.no_grad():
       for valid_batch in valid_dl:
-        batch_losses, _ = self.model.compute_losses_and_metrics(valid_batch)
-        all_val_losses.extend(batch_losses.cpu().numpy())
-
+        losses, _ = self.target_model.compute_losses_and_metrics(valid_batch)
+        all_val_losses.extend(losses.cpu().numpy())
     return float(np.mean(all_val_losses))

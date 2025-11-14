@@ -34,8 +34,8 @@ class RegressLM:
       examples: Sequence[core.Example],
       validation_examples: Sequence[core.Example] | None = None,
       seed: int | None = None,
-  ):
-    self.fine_tuner.fine_tune(examples, validation_examples, seed=seed)
+  ) -> None:
+    self.fine_tuner.fine_tune(examples, validation_examples, seed)
 
   @classmethod
   def from_scratch(cls, device: str | None = None, **kwargs) -> "RegressLM":
@@ -67,19 +67,13 @@ class RegressLM:
         architecture_kwargs=architecture_kwargs,
     )
 
-    model = config.make_model(
-        compile_model=kwargs.get("compile_model", True)
-    ).to(device)
-
-    optimizer_factory = kwargs.get(
-        "optimizer_factory", None
-    ) or functools.partial(optim.Adafactor, lr=1e-4)
+    model = config.make_model(compile_model=kwargs.get("compile_model", True))
+    model = model.to(device)
 
     fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
         model,
-        optimizer=optimizer_factory(
-            filter(lambda p: p.requires_grad, model.parameters()),
-        ),
+        optimizer_factory=kwargs.get("optimizer_factory", None)
+        or functools.partial(optim.Adafactor, lr=1e-4),
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),
@@ -124,19 +118,13 @@ class RegressLM:
         architecture_kwargs=architecture_kwargs,
     )
 
-    model = config.make_model(
-        compile_model=kwargs.get("compile_model", True)
-    ).to(device)
-
-    optimizer_factory = kwargs.get(
-        "optimizer_factory", None
-    ) or functools.partial(optim.Adafactor, lr=1e-4)
+    model = config.make_model(compile_model=kwargs.get("compile_model", True))
+    model = model.to(device)
 
     fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
         model,
-        optimizer=optimizer_factory(
-            filter(lambda p: p.requires_grad, model.parameters()),
-        ),
+        optimizer_factory=kwargs.get("optimizer_factory", None)
+        or functools.partial(optim.Adafactor, lr=1e-4),
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),

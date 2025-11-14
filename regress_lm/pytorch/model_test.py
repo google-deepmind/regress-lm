@@ -16,6 +16,7 @@
 
 import copy
 import dataclasses
+import functools
 from typing import cast
 import numpy as np
 from regress_lm import core
@@ -52,8 +53,8 @@ class ModelTest(parameterized.TestCase):
 
     self.fine_tuner = fine_tuning.PyTorchFineTuner(
         self.model,
-        optimizer=optim.Adafactor(
-            filter(lambda p: p.requires_grad, self.model.parameters()), lr=0.1
+        optimizer_factory=lambda params: optim.Adafactor(
+            filter(lambda p: p.requires_grad, params), lr=0.1
         ),
         max_epochs=1,
     )
@@ -190,12 +191,12 @@ class ModelTest(parameterized.TestCase):
 
     fine_tuner_base = fine_tuning.PyTorchFineTuner(
         model=self.model,
-        optimizer=optim.Adafactor(self.model.parameters(), lr=1e-4),
+        optimizer_factory=functools.partial(optim.Adafactor, lr=1e-4),
         max_epochs=1,
     )
     fine_tuner_microbatch = fine_tuning.PyTorchFineTuner(
         model=model_microbatch,
-        optimizer=optim.Adafactor(model_microbatch.parameters(), lr=1e-4),
+        optimizer_factory=functools.partial(optim.Adafactor, lr=1e-4),
         max_epochs=1,
         batch_size_per_device=2,
     )
@@ -228,7 +229,9 @@ class ModelTest(parameterized.TestCase):
       def _run_validation_epoch(self, *args, **kwargs) -> float:
         loss = next(self._val_loss_iter)
         if loss == min(self.validation_losses):
-          self.best_state_at_min_loss = copy.deepcopy(self.model.state_dict())
+          self.best_state_at_min_loss = copy.deepcopy(
+              self.target_model.state_dict()
+          )
         return loss
 
     # Scenario: Loss improves, then gets worse for 3 epochs.
@@ -246,14 +249,15 @@ class ModelTest(parameterized.TestCase):
     mock_tuner = MockFineTuner(
         validation_losses=validation_losses,
         model=self.model,
-        optimizer=optim.Adafactor(
-            filter(lambda p: p.requires_grad, self.model.parameters()), lr=0.1
+        optimizer_factory=lambda params: optim.Adafactor(
+            filter(lambda p: p.requires_grad, params), lr=0.1
         ),
         max_epochs=10,  # High max_epochs to ensure early stopping is the cause.
         patience=2,
     )
 
-    mock_tuner.fine_tune([core.Example(x='hello', y=1.0)])  # Example not used.
+    # Example not used, but we need to pass something.
+    mock_tuner.fine_tune(examples=[core.Example(x='hello', y=1.0)])
 
     # Training stops at right run.
     self.assertEqual(mock_tuner.training_epochs_run, expected_epochs_run)
@@ -265,6 +269,34 @@ class ModelTest(parameterized.TestCase):
     best_state = cast(dict[str, torch.Tensor], best_state)
     for key in best_state:
       torch.testing.assert_close(final_state[key], best_state[key])
+
+  def test_lora_fine_tuning(self):
+    # Adafactor is too conservative when using LoRA, use AdamW instead.
+    lora_fine_tuner = fine_tuning.PyTorchFineTuner(
+        model=self.model,
+        optimizer_factory=functools.partial(optim.AdamW, lr=0.1),
+        max_epochs=5,  # Need more steps to move model.
+        patience=None,
+        use_lora=True,
+    )
+
+    raw_examples = [
+        core.Example(x='hello', y=1.0),
+        core.Example(x='hello', y=1.0),
+    ]
+    examples_tensors = self.model.converter.convert_examples(raw_examples)
+    log_probs_before = self.model.log_prob(examples_tensors)
+    self.assertEqual(log_probs_before.shape, (2,))
+    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -22.69, 1)
+
+    # Update the model. Logprob should improve.
+    lora_fine_tuner.fine_tune(raw_examples)
+
+    log_probs_after = self.model.log_prob(examples_tensors)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -19.24, 1)
+
+    # Allow further fine-tuning.
+    lora_fine_tuner.fine_tune(raw_examples)
 
 
 if __name__ == '__main__':
