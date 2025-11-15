@@ -183,6 +183,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
 
     encoder_input = inputs['encoder_input']  # (B, L_src)
     batch_size = encoder_input.shape[0]
+    expanded_batch_size = batch_size * num_samples
     # memory: (B, L_src, D_model), memory_key_padding_mask: (B, L_src)
     memory, memory_key_padding_mask = self.encoder_decoder.encode(encoder_input)
 
@@ -203,7 +204,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
 
     # Initialize decoder input for the expanded batch, start with <pad>.
     current_tgt_ids = torch.full(
-        (batch_size * num_samples, 1),
+        (expanded_batch_size, 1),
         self.cfg.decoder_vocab.bos_pad_id,
         dtype=torch.long,
         device=self.device,
@@ -211,36 +212,37 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
 
     # Store all generated token IDs for all sequences in the expanded batch
     generated_sequences_ids = torch.zeros(
-        (batch_size * num_samples, self.cfg.decode_len),
+        (expanded_batch_size, self.cfg.decode_len),
         dtype=torch.long,
         device=self.device,
     )
 
-    # Batched autoregressive decoding loop
-    expanded_batch_size = batch_size * num_samples
-
-    def get_allowed_tokens(i: int, step_idx: int) -> list[int]:
-      prev_tokens = generated_sequences_ids[i, :step_idx].tolist()
-      return self.cfg.decoder_vocab.possible_next_token_ids(prev_tokens)
-
     for step_idx in range(self.cfg.decode_len):
+      ids_step = generated_sequences_ids[:, :step_idx].to('cpu')
+
+      def get_allowed_tokens(i: int) -> list[int]:
+        prev_tokens = ids_step[i].tolist()  # pylint: disable=cell-var-from-loop
+        return self.cfg.decoder_vocab.possible_next_token_ids(prev_tokens)
+
+      with futures.ThreadPoolExecutor() as executor:
+        results = executor.map(get_allowed_tokens, range(expanded_batch_size))
+
+      curr_mask = torch.zeros(
+          (expanded_batch_size, len(self.cfg.decoder_vocab)),
+          dtype=torch.float32,
+          device='cpu',
+      )
+      for i, allowed_inds in enumerate(results):
+        if allowed_inds:
+          curr_mask[i, allowed_inds] = 1.0
+
+      curr_mask = curr_mask.to(self.device)
+
       # Get logits for the next token for all (B * num_samples) sequences
       # Shape: (B*S, V)
       logits = self.encoder_decoder.next_token_logits(
           current_tgt_ids, expanded_memory, expanded_memory_key_padding_mask
       )
-
-      # Apply constraints using online computed mask
-      curr_mask = torch.zeros(
-          (expanded_batch_size, len(self.cfg.decoder_vocab)), device=self.device
-      )
-      parallel_fn = functools.partial(get_allowed_tokens, step_idx=step_idx)
-      with futures.ThreadPoolExecutor() as executor:
-        results = executor.map(parallel_fn, range(expanded_batch_size))
-
-      for i, allowed_inds in enumerate(results):
-        curr_mask[i, allowed_inds] = 1.0
-
       masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
 
       # Apply temperature sampling, 1 token for each of the B*S sequences
@@ -257,6 +259,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     final_decoded_ids = generated_sequences_ids.view(
         batch_size, num_samples, self.cfg.decode_len
     )
+    final_decoded_ids = final_decoded_ids.to('cpu')  # Don't hog the GPU.
 
     # Compute equivalent floats. Object type is used in case of special values.
     output_floats = np.empty(

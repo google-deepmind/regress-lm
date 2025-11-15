@@ -22,6 +22,7 @@ import torch
 from torch import nn
 from torch import optim
 from torch import utils
+import torch.distributed as dist
 from torch.optim import lr_scheduler
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
@@ -47,12 +48,21 @@ class _TrainingModelWrapper(nn.Module):
 Parameters = Iterator[nn.Parameter]
 
 
-class Trainer:
-  """A class to encapsulate the RegressLM large-scale training process.
+def get_sampler(
+    ds: utils.data.Dataset[core.Example], use_ddp: bool
+) -> DistributedSampler[core.Example] | None:
+  """Returns a sampler for the dataset, if applicable."""
+  # TODO: Check should be specifically for reverb or a random iterator.
+  # Doesn't apply to static iterables, which would lead to duplicate rank work.
+  if use_ddp and not isinstance(ds, utils.data.IterableDataset):
+    # No need to split dataset if it's an infinite iterator (e.g. reverb).
+    return DistributedSampler(ds)
+  else:
+    return None
 
-  NOTE: The caller is encouraged to still set `train()` or `eval()` explicitly
-  on `training_wrapper` to ensure proper synchronization of states.
-  """
+
+class Trainer:
+  """RegressLM large-scale training process, including distributed cases."""
 
   def __init__(
       self,
@@ -70,7 +80,8 @@ class Trainer:
     self._model = model  # NOTE: Only used as a template if distributed.
     self._training_wrapper = _TrainingModelWrapper(self._model)
     self._grad_acc_steps = grad_acc_steps
-    if use_ddp:
+    self._use_ddp = use_ddp
+    if self._use_ddp:
       self._training_wrapper = nn.parallel.DistributedDataParallel(
           self._training_wrapper
       )
@@ -81,24 +92,23 @@ class Trainer:
 
     # Create dataloaders for training and validation.
     train_is_iter = isinstance(train_ds, utils.data.IterableDataset)
-    if use_ddp and not train_is_iter:
-      # No need to split dataset if it's an infinite iterator (e.g. reverb).
-      self._train_sampler = DistributedSampler(train_ds)
-    else:
-      self._train_sampler = None
+    self._train_sampler = get_sampler(train_ds, self._use_ddp)
 
     self._train_dl = utils.data.DataLoader(
         dataset=train_ds,
         batch_size=batch_size,
         shuffle=(self._train_sampler is None and not train_is_iter),
-        num_workers=num_data_workers,
-        drop_last=False,
         sampler=self._train_sampler,
+        num_workers=num_data_workers,
         collate_fn=self._model.converter.convert_examples,
+        drop_last=False,
     )
+
     self._val_dl = utils.data.DataLoader(
         dataset=validation_ds,
         batch_size=validation_batch_size or batch_size,
+        shuffle=False,
+        sampler=get_sampler(validation_ds, self._use_ddp),
         num_workers=num_data_workers,
         collate_fn=self._model.converter.convert_examples,
     )
@@ -107,23 +117,34 @@ class Trainer:
     """Runs the validation loop and returns metrics."""
     self._optimizer.zero_grad(set_to_none=True)  # Free up memory.
     self._training_wrapper.eval()
-    total_loss, total_items = 0.0, 0
-    metric_sums: dict[str, float] = collections.defaultdict(float)
+
+    total_loss = torch.tensor(0.0, device=self._model.device)
+    total_items = torch.tensor(0, device=self._model.device)
+    metric_sums: dict[str, torch.Tensor] = collections.defaultdict(
+        lambda: torch.tensor(0.0, device=self._model.device)
+    )
 
     with torch.no_grad():
       for val_batch in self._val_dl:
-        losses_p_ex, metrics = self.model.compute_losses_and_metrics(val_batch)
+        losses_p_ex, metrics = self._training_wrapper.forward(val_batch)
         bsz = next(iter(val_batch.values())).size(0)
 
-        total_loss += losses_p_ex.sum().item()
+        total_loss += losses_p_ex.sum()
         for k, m in metrics.items():
-          metric_sums[k] += m.item() * bsz
+          metric_sums[k] += m * bsz
         total_items += bsz
 
+    if self._use_ddp:
+      dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+      dist.all_reduce(total_items, op=dist.ReduceOp.SUM)
+      for k in metric_sums:
+        dist.all_reduce(metric_sums[k], op=dist.ReduceOp.SUM)
+
     val_metrics = {
-        f'validation_{k}': v / total_items for k, v in metric_sums.items()
+        f'validation_{k}': v.item() / total_items.item()
+        for k, v in metric_sums.items()
     }
-    val_metrics['validation_loss'] = total_loss / total_items
+    val_metrics['validation_loss'] = total_loss.item() / total_items.item()
     return val_metrics
 
   def run_train_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
