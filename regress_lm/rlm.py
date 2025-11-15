@@ -25,26 +25,46 @@ from regress_lm import vocabs
 class RegressLM:
   """User-facing API for RegressLM."""
 
-  def __init__(self, model: core.Model, fine_tuner: core.FineTuner):
+  def __init__(self, model: core.Model):
     self.model = model
-    self.fine_tuner = fine_tuner
 
   def fine_tune(
       self,
       examples: Sequence[core.Example],
       validation_examples: Sequence[core.Example] | None = None,
       seed: int | None = None,
+      **kwargs,
   ) -> None:
-    self.fine_tuner.fine_tune(examples, validation_examples, seed)
+    """Fine-tunes the model against the provided examples."""
+    # pylint: disable=g-import-not-at-top
+    from torch import optim
+    from regress_lm.pytorch import fine_tuning as pytorch_fine_tuning
+
+    # NOTE: This adds extra GPU memory usage, so we don't add into init.
+    fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
+        self.model,
+        optimizer_factory=kwargs.get("optimizer_factory", None)
+        or functools.partial(optim.Adafactor, lr=1e-4),
+        max_epochs=kwargs.get("max_epochs", 100),
+        batch_size=kwargs.get("batch_size", None),
+        batch_size_per_device=kwargs.get("batch_size_per_device", None),
+        patience=kwargs.get("patience", 1),
+        use_lora=kwargs.get("use_lora", False),
+        lora_r=kwargs.get("lora_r", 8),
+        lora_alpha=kwargs.get("lora_alpha", 16),
+        lora_dropout=kwargs.get("lora_dropout", 0.0),
+        target_modules=kwargs.get(
+            "target_modules", pytorch_fine_tuning.DEFAULT_LORA_TARGET_MODULES
+        ),
+    )
+    fine_tuner.fine_tune(examples, validation_examples, seed)
 
   @classmethod
   def from_scratch(cls, device: str | None = None, **kwargs) -> "RegressLM":
     """Creates a RegressLM with default model and finetuner."""
     # pylint: disable=g-import-not-at-top
     import torch
-    from torch import optim
     from regress_lm.pytorch import model as pytorch_model
-    from regress_lm.pytorch import fine_tuning as pytorch_fine_tuning
     from regress_lm.pytorch import encoders
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -68,32 +88,19 @@ class RegressLM:
     )
 
     model = config.make_model(compile_model=kwargs.get("compile_model", True))
-    model = model.to(device)
-
-    fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
-        model,
-        optimizer_factory=kwargs.get("optimizer_factory", None)
-        or functools.partial(optim.Adafactor, lr=1e-4),
-        max_epochs=kwargs.get("max_epochs", 100),
-        batch_size=kwargs.get("batch_size", None),
-        batch_size_per_device=kwargs.get("batch_size_per_device", None),
-        patience=kwargs.get("patience", 1),
-    )
-    return cls(model, fine_tuner)
+    return cls(model.to(device))
 
   @classmethod
   def from_t5gemma_encoder(
       cls,
       model_name: str = "google/t5gemma-s-s-prefixlm",
       device: str | None = None,
-      **kwargs
+      **kwargs,
   ) -> "RegressLM":
     """Frozen T5Gemma encoder w/ custom decoder."""
     # pylint: disable=g-import-not-at-top
     import torch
-    from torch import optim
     from regress_lm.pytorch import model as pytorch_model
-    from regress_lm.pytorch import fine_tuning as pytorch_fine_tuning
     from regress_lm.pytorch import encoders
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -109,8 +116,7 @@ class RegressLM:
     )
 
     config = pytorch_model.PyTorchModelConfig(
-        encoder_vocab=vocabs.HuggingFaceVocab(model_name)
-        or vocabs.SentencePieceVocab.from_t5(),
+        encoder_vocab=vocabs.HuggingFaceVocab(model_name),
         decoder_vocab=kwargs.get("decoder_vocab")
         or vocabs.DecoderVocab(tokenizers.IEEEFloatTokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
@@ -119,18 +125,7 @@ class RegressLM:
     )
 
     model = config.make_model(compile_model=kwargs.get("compile_model", True))
-    model = model.to(device)
-
-    fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
-        model,
-        optimizer_factory=kwargs.get("optimizer_factory", None)
-        or functools.partial(optim.Adafactor, lr=1e-4),
-        max_epochs=kwargs.get("max_epochs", 100),
-        batch_size=kwargs.get("batch_size", None),
-        batch_size_per_device=kwargs.get("batch_size_per_device", None),
-        patience=kwargs.get("patience", 1),
-    )
-    return cls(model, fine_tuner)
+    return cls(model.to(device))
 
   def sample(
       self, xs: Sequence[core.ExampleInput], num_samples: int
