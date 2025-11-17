@@ -15,7 +15,10 @@
 """Pretraining class for RegressLM."""
 
 import collections
+import os
 from typing import Callable, Iterator
+import uuid
+from absl import logging
 import numpy as np
 from regress_lm import core
 from regress_lm.pytorch import model as pytorch_model
