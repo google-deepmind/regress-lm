@@ -89,6 +89,7 @@ class PyTorchConverter(core.Converter[Tensor]):
     pad_id = self.cfg.decoder_vocab.bos_pad_id
 
     for t in y_tokens_list:
+      t = t[: self.cfg.decode_len]  # Truncate if too many objectives.
       padding_needed = self.cfg.decode_len - len(t)
       # Input: [pad, t_1, ..., t_n, pad, ..., pad]
       decoder_inputs.append([pad_id] + t + [pad_id] * padding_needed)
