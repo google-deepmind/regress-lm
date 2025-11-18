@@ -16,6 +16,7 @@
 
 import collections
 from typing import Callable, Iterator
+import numpy as np
 from regress_lm import core
 from regress_lm.pytorch import model as pytorch_model
 import torch
@@ -118,33 +119,34 @@ class Trainer:
     self._optimizer.zero_grad(set_to_none=True)  # Free up memory.
     self._training_wrapper.eval()
 
-    total_loss = torch.tensor(0.0, device=self._model.device)
-    total_items = torch.tensor(0, device=self._model.device)
     metric_sums: dict[str, torch.Tensor] = collections.defaultdict(
-        lambda: torch.tensor(0.0, device=self._model.device)
+        lambda: torch.tensor(0.0)
     )
+    total_items = torch.tensor(0)
 
     with torch.no_grad():
       for val_batch in self._val_dl:
-        losses_p_ex, metrics = self._training_wrapper.forward(val_batch)
+        _, metrics = self._training_wrapper.forward(val_batch)
         bsz = next(iter(val_batch.values())).size(0)
 
-        total_loss += losses_p_ex.sum()
-        for k, m in metrics.items():
-          metric_sums[k] += m * bsz
+        for key, value_tensor in metrics.items():
+          metric_sums[key] += value_tensor.to('cpu') * bsz
         total_items += bsz
 
-    if self._use_ddp:
-      dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+    if self._use_ddp:  # Move final sums to GPU for communication.
+      total_items = total_items.to(self._model.device)
       dist.all_reduce(total_items, op=dist.ReduceOp.SUM)
-      for k in metric_sums:
-        dist.all_reduce(metric_sums[k], op=dist.ReduceOp.SUM)
+      for key in metric_sums:
+        metric_sums[key] = metric_sums[key].to(self._model.device)
+        dist.all_reduce(metric_sums[key], op=dist.ReduceOp.SUM)
 
-    val_metrics = {
-        f'validation_{k}': v.item() / total_items.item()
-        for k, v in metric_sums.items()
-    }
-    val_metrics['validation_loss'] = total_loss.item() / total_items.item()
+    val_metrics = {}
+    mean_val_loss = metric_sums['loss_mean'] / total_items
+    val_metrics['validation_loss'] = mean_val_loss.item()
+    val_metrics['validation_perplexity'] = torch.exp(mean_val_loss).item()
+    for key, value in metric_sums.items():
+      if key != 'loss_mean':
+        val_metrics[f'validation_{key}'] = (value / total_items).item()
     return val_metrics
 
   def run_train_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
@@ -163,7 +165,13 @@ class Trainer:
 
     self._global_step += 1
 
+    if self._use_ddp:
+      for k in metrics:
+        dist.all_reduce(metrics[k], op=dist.ReduceOp.SUM)
+        metrics[k] /= dist.get_world_size()
+
     train_metrics = {f'train_{k}': v.item() for k, v in metrics.items()}
+    train_metrics['train_perplexity'] = np.exp(train_metrics['train_loss_mean'])
     train_metrics['train_loss'] = loss.item() * self._grad_acc_steps
     return train_metrics
 
