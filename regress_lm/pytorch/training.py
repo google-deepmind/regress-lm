@@ -172,7 +172,6 @@ class Trainer:
 
     train_metrics = {f'train_{k}': v.item() for k, v in metrics.items()}
     train_metrics['train_perplexity'] = np.exp(train_metrics['train_loss_mean'])
-    train_metrics['train_loss'] = loss.item() * self._grad_acc_steps
     return train_metrics
 
   def save_checkpoint(self, checkpoint_path: str) -> None:
