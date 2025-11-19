@@ -38,6 +38,9 @@ pip install ".[extras]"
 ```
 
 ## Usage <a name="usage"></a>
+
+Check out our [examples directory](examples/) for detailed tutorials!
+
 There are two main stages: **inference** and **pretraining** (optional but
 recommended).
 
