@@ -15,7 +15,7 @@
 """Pretraining class for RegressLM."""
 
 import collections
-from typing import Callable, Iterator
+from typing import Any, Callable, Iterator
 import numpy as np
 from regress_lm import core
 from regress_lm.pytorch import model as pytorch_model
@@ -175,7 +175,12 @@ class Trainer:
     train_metrics['train_perplexity'] = np.exp(train_metrics['train_loss_mean'])
     return train_metrics
 
-  def save_checkpoint(self, checkpoint_path: str) -> None:
+  def save_checkpoint(
+      self,
+      checkpoint_path: str,
+      # In case more resilient checkpointing is needed with custom saving.
+      save_fn: Callable[[dict[str, Any], str], None] = torch.save,
+  ) -> None:
     """Saves the current training state to a checkpoint file."""
     state = {
         'model_state': self.model.state_dict(),
@@ -183,7 +188,7 @@ class Trainer:
         'scheduler_state': self._scheduler.state_dict(),
         'global_step': self._global_step,
     }
-    torch.save(state, checkpoint_path)
+    save_fn(state, checkpoint_path)
 
   def load_checkpoint(self, checkpoint_path: str) -> None:
     """Loads the training state from a checkpoint file."""
