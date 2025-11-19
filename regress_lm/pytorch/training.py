@@ -102,7 +102,7 @@ class Trainer:
         sampler=self._train_sampler,
         num_workers=num_data_workers,
         collate_fn=self._model.converter.convert_examples,
-        drop_last=False,
+        drop_last=True,  # Recommended to avoid model re-compilations.
     )
 
     self._val_dl = utils.data.DataLoader(
@@ -112,6 +112,7 @@ class Trainer:
         sampler=get_sampler(validation_ds, self._use_ddp),
         num_workers=num_data_workers,
         collate_fn=self._model.converter.convert_examples,
+        drop_last=True,  # Recommended to avoid model re-compilations.
     )
 
   def run_validation_epoch(self) -> dict[str, float]:
