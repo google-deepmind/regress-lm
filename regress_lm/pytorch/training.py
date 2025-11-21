@@ -62,6 +62,20 @@ def get_sampler(
     return None
 
 
+def cycle_dataloader(dataloader: utils.data.DataLoader[core.Example]):
+  """Cycles through a dataloader indefinitely."""
+  epoch = 0
+  while True:
+    # Crucial for DDP: ensure the shuffle is different every epoch
+    if isinstance(dataloader.sampler, DistributedSampler):
+      dataloader.sampler.set_epoch(epoch)
+
+    for batch in dataloader:
+      yield batch
+
+    epoch += 1
+
+
 class Trainer:
   """RegressLM large-scale training process, including distributed cases."""
 
