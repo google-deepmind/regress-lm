@@ -41,13 +41,17 @@ class ExampleInputDataset(utils.data.Dataset[core.ExampleInput]):
 class ExampleDataset(utils.data.Dataset[core.Example]):
   """A simple Dataset that holds raw `core.Example` objects. Same as above."""
 
-  def __init__(self, examples: Sequence[core.Example]):
+  def __init__(self, examples: Sequence[core.Example], repeating: bool = False):
     self.examples = examples
+    self.repeating = repeating
 
   def __len__(self) -> int:
     return len(self.examples)
 
   def __getitem__(self, idx: int) -> core.Example:
+    if self.repeating:
+      idx %= len(self.examples)
+
     return self.examples[idx]
 
 
