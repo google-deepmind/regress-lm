@@ -172,13 +172,12 @@ class Trainer:
     loss = losses_per_example.mean()
     loss /= self._grad_acc_steps
     loss.backward()
+    self._global_step += 1
 
-    if (self._global_step + 1) % self._grad_acc_steps == 0:
+    if self._global_step % self._grad_acc_steps == 0:
       self._optimizer.step()
       self._scheduler.step()
       self._optimizer.zero_grad(set_to_none=True)
-
-    self._global_step += 1
 
     if self._use_ddp:
       for k in metrics:
@@ -213,8 +212,8 @@ class Trainer:
     self._global_step = checkpoint['global_step']
 
   @property
-  def global_step(self) -> int:
-    return self._global_step
+  def step(self) -> int:
+    return self._global_step // self._grad_acc_steps
 
   @property
   def train_sampler(self) -> DistributedSampler[core.Example] | None:
