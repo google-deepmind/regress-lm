@@ -76,7 +76,10 @@ class PyTorchConverter(core.Converter[Tensor]):
         self.cfg.encoder_vocab.to_token_ids(s) for s in strings
     ]
     encoder_input = [self._pad_or_truncate(t) for t in encoder_token_ids]
-    return {'encoder_input': torch.tensor(encoder_input)}
+    return {
+        'encoder_input': torch.tensor(encoder_input),
+        'input_token_lens': torch.tensor([len(t) for t in encoder_token_ids]),
+    }
 
   def convert_examples(
       self, examples: Sequence[core.Example]
@@ -138,18 +141,22 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
   def device(self) -> torch.device:
     return next(self.parameters()).device
 
-  def to_device(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
-    return {k: v.to(self.device) for k, v in batch.items()}
+  def to_device(
+      self, batch: dict[str, Tensor] | Tensor
+  ) -> dict[str, Tensor] | Tensor:
+    if isinstance(batch, dict):
+      return {k: v.to(self.device) for k, v in batch.items()}
+    return batch.to(self.device)
 
   def compute_losses_and_metrics(
       self, examples: dict[str, Tensor]
   ) -> tuple[Tensor, dict[str, Tensor]]:
-    examples = self.to_device(examples)
     metrics = {}
     logits = self.encoder_decoder.forward(
-        examples['encoder_input'], examples['decoder_input']
+        self.to_device(examples['encoder_input']),
+        self.to_device(examples['decoder_input']),
     )
-    targets = examples['decoder_target']
+    targets = self.to_device(examples['decoder_target'])
 
     ce_loss_per_tokens = F.cross_entropy(
         logits.permute(0, 2, 1),
@@ -171,6 +178,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       loss_per_example = loss_per_example + z_loss_per_example
 
     metrics['loss_mean'] = loss_per_example.mean().detach()
+    metrics['max_input_token_len'] = examples['input_token_lens'].max().detach()
     return loss_per_example, metrics
 
   @torch.no_grad()
@@ -180,9 +188,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       num_samples: int,
       temperature: float = 1.0,
   ) -> tuple[Tensor, np.ndarray]:
-    inputs = self.to_device(inputs)
-
-    encoder_input = inputs['encoder_input']  # (B, L_src)
+    encoder_input = self.to_device(inputs['encoder_input'])  # (B, L_src)
     batch_size = encoder_input.shape[0]
     expanded_batch_size = batch_size * num_samples
     # memory: (B, L_src, D_model), memory_key_padding_mask: (B, L_src)
@@ -275,14 +281,13 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     return final_decoded_ids, output_floats
 
   def log_prob(self, examples: dict[str, Tensor]) -> Tensor:
-    examples = self.to_device(examples)
-    enc_input = examples['encoder_input']
-    dec_input = examples['decoder_input']
-    dec_target = examples['decoder_target']
-
-    logits = self.encoder_decoder.forward(enc_input, dec_input)
+    logits = self.encoder_decoder.forward(
+        self.to_device(examples['encoder_input']),
+        self.to_device(examples['decoder_input']),
+    )
     log_probs = F.log_softmax(logits, dim=-1)
 
+    dec_target = self.to_device(examples['decoder_target'])
     true_log_probs = torch.gather(
         log_probs, dim=2, index=dec_target.unsqueeze(-1)
     )
