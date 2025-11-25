@@ -181,6 +181,7 @@ class Trainer:
 
     if self._use_ddp:
       for k in metrics:
+        metrics[k] = metrics[k].to(self._model.device)
         dist.all_reduce(metrics[k], op=dist.ReduceOp.SUM)
         metrics[k] /= dist.get_world_size()
 
