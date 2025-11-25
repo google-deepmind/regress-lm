@@ -94,10 +94,11 @@ class RegressLM:
   def from_t5gemma_encoder(
       cls,
       model_name: str = "google/t5gemma-s-s-prefixlm",
+      freeze_encoder: bool = False,
       device: str | None = None,
       **kwargs,
   ) -> "RegressLM":
-    """Frozen T5Gemma encoder w/ custom decoder."""
+    """T5Gemma encoder w/ custom decoder."""
     # pylint: disable=g-import-not-at-top
     import torch
     from regress_lm.pytorch import model as pytorch_model
@@ -105,14 +106,15 @@ class RegressLM:
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-    additional_encoder_kwargs = kwargs.get("additional_encoder_kwargs", {})
-    additional_encoder_kwargs["model_name"] = model_name
     architecture_kwargs = dict(
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=0,  # Dummy value, will be ignored.
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
         encoder_type=kwargs.get("encoder_type", encoders.EncoderType.T5GEMMA),
-        additional_encoder_kwargs=additional_encoder_kwargs,
+        additional_encoder_kwargs={
+            "model_name": model_name,
+            "freeze_weights": freeze_encoder,
+        },
     )
 
     config = pytorch_model.PyTorchModelConfig(
