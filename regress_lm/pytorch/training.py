@@ -152,7 +152,9 @@ class Trainer:
       total_items = total_items.to(self._model.device)
       dist.all_reduce(total_items, op=dist.ReduceOp.SUM)
       for key in metric_sums:
-        metric_sums[key] = metric_sums[key].to(self._model.device)
+        metric_sums[key] = metric_sums[key].to(
+            self._model.device, dtype=torch.float32
+        )
         dist.all_reduce(metric_sums[key], op=dist.ReduceOp.SUM)
 
     val_metrics = {}
@@ -181,7 +183,7 @@ class Trainer:
 
     if self._use_ddp:
       for k in metrics:
-        metrics[k] = metrics[k].to(self._model.device)
+        metrics[k] = metrics[k].to(self._model.device, dtype=torch.float32)
         dist.all_reduce(metrics[k], op=dist.ReduceOp.SUM)
         metrics[k] /= dist.get_world_size()
 
