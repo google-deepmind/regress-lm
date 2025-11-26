@@ -15,6 +15,7 @@
 """Pretraining class for RegressLM."""
 
 import collections
+import contextlib
 from typing import Any, Callable, Iterator
 import numpy as np
 from regress_lm import core
@@ -169,14 +170,21 @@ class Trainer:
   def run_train_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
     """Runs train step and returns metrics."""
     self._training_wrapper.train()
-
-    losses_per_example, metrics = self._training_wrapper.forward(batch)
-    loss = losses_per_example.mean()
-    loss /= self._grad_acc_steps
-    loss.backward()
     self._global_step += 1
 
-    if self._global_step % self._grad_acc_steps == 0:
+    is_update_step = self._global_step % self._grad_acc_steps == 0
+    if self._use_ddp and not is_update_step:  # Don't sync on non-update steps.
+      context = self._training_wrapper.no_sync()
+    else:
+      context = contextlib.nullcontext()
+
+    with context:
+      losses_per_example, metrics = self._training_wrapper.forward(batch)
+      loss = losses_per_example.mean()
+      loss /= self._grad_acc_steps
+      loss.backward()
+
+    if is_update_step:
       self._optimizer.step()
       self._scheduler.step()
       self._optimizer.zero_grad(set_to_none=True)
