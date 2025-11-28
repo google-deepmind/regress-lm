@@ -68,20 +68,13 @@ the user pretrains over large amounts of their own training data. Example
 pseudocode with PyTorch:
 
 ```python
-from torch import optim
 from regress_lm.pytorch import model as model_lib
+from regress_lm.pytorch import training
 
 model = model_lib.PyTorchModelConfig(...).make_model()
-optimizer = optim.Adafactor(
-    filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4
-)
-for _ in range(...):
-  examples = [Example(x=..., y=...), ...]
-  tensor_examples = model.converter.convert(examples)
-  optimizer.zero_grad()
-  loss, _ = model.compute_loss_and_metrics(tensor_examples)
-  loss.backward()
-  optimizer.step()
+trainer = training.Trainer(model, optimizer_factory, train_dataset, ...)
+for batch in trainer.train_dl:
+  train_metrics = trainer.run_train_step(batch)
 ```
 
 ## Boosting Performance and Extended Applications <a name="extended_usage"></a>
@@ -120,7 +113,7 @@ samples = reg_lm.sample([core.ExampleInput(x='hi')], num_samples=128)[0]
 ```
 
 ### Pretrained Third-Party Models
-[T5Gemma](https://developers.googleblog.com/en/t5gemma/) frozen encoder + our
+[T5Gemma](https://developers.googleblog.com/en/t5gemma/) encoder + our
 default decoder is supported:
 
 ```python
