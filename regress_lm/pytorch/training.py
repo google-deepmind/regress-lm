@@ -223,8 +223,8 @@ class Trainer:
     self._global_step = checkpoint['global_step']
 
   @property
-  def step(self) -> int:
-    return self._global_step // self._grad_acc_steps
+  def step(self) -> float:
+    return self._global_step / self._grad_acc_steps
 
   @property
   def train_sampler(self) -> DistributedSampler[core.Example] | None:
