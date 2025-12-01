@@ -363,9 +363,9 @@ class AddSpecialValues(DecoderTokenizer[str | float]):
 
   SPECIAL_VALUE_MAP = {
       'INVALID': 'INVALID',
-      'NAN': float('nan'),
-      'INF': float('inf'),
-      'NINF': float('-inf'),
+      'NAN': math.nan,
+      'INF': math.inf,
+      'NINF': -math.inf,
   }
 
   def __init__(self, tokenizer: DecoderTokenizer):
