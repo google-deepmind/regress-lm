@@ -398,12 +398,12 @@ class AddSpecialValues(DecoderTokenizer[str | float]):
     elif isinstance(obj, float):
       if math.isnan(obj):
         string = 'NAN'
-      elif obj == float('inf'):
+      elif math.isinf(obj) and obj > 0:
         string = 'INF'
-      elif obj == float('-inf'):
+      elif math.isinf(obj) and obj < 0:
         string = 'NINF'
 
-    if string:
+    if string is not None:
       return [_to_token(string)] * self.num_tokens_per_obj
     return self._tokenizer.to_tokens(obj)
 
