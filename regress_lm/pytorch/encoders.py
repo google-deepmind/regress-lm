@@ -567,7 +567,7 @@ class T5GemmaEncoder(BaseEncoder):
   def __init__(
       self,
       model_name: str = "google/t5gemma-s-s-prefixlm",
-      freeze_weights: bool = True,
+      freeze_weights: bool = False,
       attn_implementation: str = "eager",  # if Flash causes issues.
   ):
     super().__init__()
