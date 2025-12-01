@@ -59,7 +59,7 @@ class PyTorchModelConfig:
 
   def make_model(self, compile_model: bool = True) -> 'PyTorchModel':
     """Factory method to create a model from this config."""
-    return PyTorchModel(config=self, compile_model=compile_model)
+    return PyTorchModel(self, compile_model)
 
 
 class PyTorchConverter(core.Converter[Tensor]):
