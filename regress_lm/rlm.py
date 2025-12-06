@@ -114,6 +114,7 @@ class RegressLM:
         additional_encoder_kwargs={
             "model_name": model_name,
             "freeze_weights": freeze_encoder,
+            "attn_implementation": kwargs.get("attn_implementation", "eager"),
         },
     )
 
