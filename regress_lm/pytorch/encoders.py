@@ -568,7 +568,7 @@ class T5GemmaEncoder(BaseEncoder):
       self,
       model_name: str = "google/t5gemma-s-s-prefixlm",
       freeze_weights: bool = False,
-      attn_implementation: str = "eager",  # if Flash causes issues.
+      attn_implementation: str = "sdpa",  # Flash causes issues ATM.
   ):
     super().__init__()
 
