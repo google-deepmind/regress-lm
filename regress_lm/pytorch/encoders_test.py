@@ -14,6 +14,7 @@
 
 import math
 
+from regress_lm import vocabs
 from regress_lm.pytorch import encoders
 import torch
 from torch.nn import functional as F
@@ -227,7 +228,8 @@ class FavorAttentionTest(parameterized.TestCase):
 class T5GemmaEncoderTest(parameterized.TestCase):
   """Tests for the T5GemmaEncoder wrapper."""
 
-  def test_forward_shape_and_no_nans(self):
+  @parameterized.parameters(0, 10, -10)
+  def test_forward_shape_and_no_nans(self, vocab_size_diff: int):
     """Tests that the T5Gemma encoder output has the correct shape."""
     batch_size = 2
     seq_len = 20
@@ -240,7 +242,11 @@ class T5GemmaEncoderTest(parameterized.TestCase):
     src_key_padding_mask[0, 15:] = True
     src_key_padding_mask[1, 18:] = True
 
-    encoder = encoders.T5GemmaEncoder(model_name="google/t5gemma-s-s-prefixlm")
+    model_name = "google/t5gemma-s-s-prefixlm"
+    vocab = vocabs.HuggingFaceVocab(model_name)
+    encoder = encoders.T5GemmaEncoder(
+        vocab_size=len(vocab) + vocab_size_diff, model_name=model_name
+    )
 
     # --- 1. Test with padding mask ---
     output = encoder(src_ids, src_key_padding_mask)

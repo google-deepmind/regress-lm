@@ -566,15 +566,30 @@ class T5GemmaEncoder(BaseEncoder):
 
   def __init__(
       self,
-      model_name: str = "google/t5gemma-s-s-prefixlm",
+      vocab_size: int,
+      model_name: str,
+      random_init: bool = False,
       freeze_weights: bool = False,
       attn_implementation: str = "sdpa",  # Flash causes issues ATM.
   ):
     super().__init__()
 
-    model = transformers.T5GemmaForConditionalGeneration.from_pretrained(  # pytype: disable=attribute-error
-        model_name, attn_implementation=attn_implementation
-    )
+    if not random_init:  # Pretrained model.
+      model = transformers.T5GemmaForConditionalGeneration.from_pretrained(
+          model_name, attn_implementation=attn_implementation
+      )
+      if vocab_size != model.config.vocab_size:
+        logging.info(
+            "NOTE: Pretrained T5Gemma vocab resized from %d to %d.",
+            model.config.vocab_size,
+            vocab_size,
+        )
+        model.resize_token_embeddings(vocab_size)
+    else:  # Random initialization.
+      config = transformers.AutoConfig.from_pretrained(model_name)
+      config.vocab_size = vocab_size
+      model = transformers.T5GemmaForConditionalGeneration(config)
+
     self.encoder = model.get_encoder()
 
     if freeze_weights:
@@ -639,7 +654,6 @@ class EncoderType(enum.Enum):
           **encoder_kwargs,
       )
     elif self is EncoderType.T5GEMMA:
-      logging.info("NOTE: T5Gemma requires using its specific vocab.")
-      return T5GemmaEncoder(**encoder_kwargs)
+      return T5GemmaEncoder(vocab_size=vocab_size, **encoder_kwargs)
     else:
       raise NotImplementedError(f"Encoder type {self} is not implemented.")

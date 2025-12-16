@@ -95,6 +95,7 @@ class RegressLM:
       cls,
       model_name: str = "google/t5gemma-s-s-prefixlm",
       freeze_encoder: bool = False,
+      random_init: bool = False,
       device: str | None = None,
       **kwargs,
   ) -> "RegressLM":
@@ -114,11 +115,13 @@ class RegressLM:
         additional_encoder_kwargs={
             "model_name": model_name,
             "freeze_weights": freeze_encoder,
+            "random_init": random_init,
         },
     )
 
     config = pytorch_model.PyTorchModelConfig(
-        encoder_vocab=vocabs.HuggingFaceVocab(model_name),
+        encoder_vocab=kwargs.get("encoder_vocab")
+        or vocabs.HuggingFaceVocab(model_name),
         decoder_vocab=kwargs.get("decoder_vocab")
         or vocabs.DecoderVocab(tokenizers.IEEEFloatTokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
