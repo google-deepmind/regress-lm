@@ -1,0 +1,7 @@
+name: reglm
+channels:
+  - pytorch
+  - defaults
+dependencies:
+  - pip
+  - pip:

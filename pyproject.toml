@@ -24,3 +24,7 @@ extras = [
     "transformers",  # for T5Gemma model.
     # "mamba-ssm[causal-conv1d]",  # for Mamba SSM model. cuda errors ATM.
 ]
+
+[tool.setuptools.packages.find]
+include = ["regress_lm*"]
+exclude = ["docker*"]

@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -e
+
+if [[ -n "${MINDSOM_DEBUG}" ]]; then
+    set -x
+fi
+
+source $(dirname "$0")/env
+
+function usage() {
+    echo -n \
+        "Usage: $(basename "$0")
+Launches a Jupyter notebook in a docker container with all prerequisites installed.
+"
+}
+
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    docker run --rm -it \
+        -v `pwd`:/mindsom \
+        --entrypoint jupyter \
+        -p 8888:8888 \
+        mindsom:local \
+        lab \
+        --ip=0.0.0.0 \
+        --port=8888 \
+        --no-browser \
+        --allow-root \
+        --notebook-dir=/mindsom
+fi

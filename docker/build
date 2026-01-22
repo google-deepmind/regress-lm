@@ -1,0 +1,63 @@
+#!/bin/bash
+
+set -e
+
+if [[ -n "${MINDSOM_DEBUG}" ]]; then
+    set -x
+fi
+
+source $(dirname "$0")/env
+
+function usage() {
+
+    echo -n \
+        "Usage: $(basename "$0")
+Build mindsom container. Must be run from the repository root
+
+Options:
+--no-cache  Do not use cache when building the images
+--pull      Attempt to pull upstream images before building
+"
+}
+
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+        --help)
+        usage
+        exit 0
+        shift
+        ;;
+
+        --no-cache)
+        NO_CACHE="--no-cache"
+        shift
+        ;;
+
+        --pull)
+        PULL="--pull"
+        shift
+        ;;
+    esac
+done
+
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    if [ "${1:-}" = "--help" ]; then
+        usage
+    else
+        docker build $PULL $NO_CACHE --target dev -t regress-lm:local -f docker/Dockerfile .
+    fi
+
+    # Wipe out the debug container if it still exists. It is now obsolete.
+    if [ "$(docker ps -aqf name=$DOCKER_CONTAINER_NAME)" ]; then
+        # Container exists
+        if [ "$(docker ps -qf name=$DOCKER_CONTAINER_NAME)" ]; then
+            # Container is runnking
+            echo "Kill debug container"
+            docker kill $DOCKER_DEBUG_NAME
+        fi
+        echo "Remove debug container"
+        docker rm -f $DOCKER_DEBUG_NAME
+    fi
+fi

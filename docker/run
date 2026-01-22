@@ -1,0 +1,26 @@
+#!/bin/bash
+
+set -e
+
+if [[ -n "${MINDSOM_DEBUG}" ]]; then
+    set -x
+fi
+
+source $(dirname "$0")/env
+
+function usage() {
+    echo -n \
+        "Usage: $(basename "$0")
+Run a console in a docker container with all prerequisites installed.
+"
+}
+
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    docker run --rm -it --gpus all\
+        -v /home/fotg2901/project/DATASET:/mindsom/DATASETS \
+        --ipc=host \
+        -v `pwd`:/mindsom \
+        -p 8000:8000 \
+        --entrypoint /bin/bash \
+        mindsom:local
+fi

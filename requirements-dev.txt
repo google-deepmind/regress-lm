@@ -1,0 +1,14 @@
+absl==0.0
+gcsfs==2025.12.0
+huggingface_hub==0.36.0
+matplotlib==3.10.8
+numpy==2.4.1
+ordered_set==4.1.0
+pandas==2.3.3
+peft==0.18.0
+safetensors==0.7.0
+scikit_learn==1.8.0
+seaborn==0.13.2
+sentencepiece==0.2.1
+torch==2.9.1
+transformers==4.57.3
