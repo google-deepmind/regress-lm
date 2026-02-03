@@ -62,6 +62,7 @@ class EncoderDecoder(nn.Module):
       d_model: int,
       num_encoder_layers: int,
       num_decoder_layers: int,
+      decoder_dropout: float = 0.0,
       # encoder args
       encoder_type: encoders.EncoderType = encoders.EncoderType.VANILLA,
       additional_encoder_kwargs: dict[str, Any] | None = None,
@@ -79,13 +80,15 @@ class EncoderDecoder(nn.Module):
     # We use the hidden_dim of the encoder for the decoder.
     self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, self.encoder.hidden_dim)
     self.decoder_positional_encoding = _PositionalEncoding(
-        self.encoder.hidden_dim, max_len=max_decoder_len, dropout=0.0
+        self.encoder.hidden_dim,
+        max_len=max_decoder_len,
+        dropout=decoder_dropout,
     )
     decoder_layer = nn.TransformerDecoderLayer(
         self.encoder.hidden_dim,
         nhead=8,
         dim_feedforward=4 * self.encoder.hidden_dim,
-        dropout=0.0,
+        dropout=decoder_dropout,
         batch_first=True,
         norm_first=True,
     )

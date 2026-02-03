@@ -571,12 +571,16 @@ class T5GemmaEncoder(BaseEncoder):
       random_init: bool = False,
       freeze_weights: bool = False,
       attn_implementation: str = "sdpa",  # Flash causes issues ATM.
+      dropout: float = 0.0,
   ):
     super().__init__()
 
     if not random_init:  # Pretrained model.
       model = transformers.T5GemmaForConditionalGeneration.from_pretrained(
-          model_name, attn_implementation=attn_implementation
+          model_name,
+          attn_implementation=attn_implementation,
+          dropout_rate=dropout,
+          attention_dropout=dropout,
       )
       if vocab_size != model.config.vocab_size:
         logging.info(
@@ -588,6 +592,8 @@ class T5GemmaEncoder(BaseEncoder):
     else:  # Random initialization.
       config = transformers.AutoConfig.from_pretrained(model_name)
       config.vocab_size = vocab_size
+      config.dropout_rate = dropout
+      config.attention_dropout = dropout
       model = transformers.T5GemmaForConditionalGeneration(config)
 
     self.encoder = model.get_encoder()
