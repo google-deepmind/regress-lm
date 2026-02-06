@@ -15,7 +15,6 @@
 """PyTorch implementation of a RegressLM."""
 
 # pytype:disable=attribute-error
-from concurrent import futures
 import dataclasses
 import functools
 from typing import Any, Sequence
@@ -225,25 +224,10 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     )
 
     for step_idx in range(self.cfg.decode_len):
-      ids_step = generated_sequences_ids[:, :step_idx].to('cpu')
-
-      def get_allowed_tokens(i: int) -> list[int]:
-        prev_tokens = ids_step[i].tolist()  # pylint: disable=cell-var-from-loop
-        return self.cfg.decoder_vocab.possible_next_token_ids(prev_tokens)
-
-      with futures.ThreadPoolExecutor() as executor:
-        results = executor.map(get_allowed_tokens, range(expanded_batch_size))
-
-      curr_mask = torch.zeros(
-          (expanded_batch_size, len(self.cfg.decoder_vocab)),
-          dtype=torch.float32,
-          device='cpu',
-      )
-      for i, allowed_inds in enumerate(results):
-        if allowed_inds:
-          curr_mask[i, allowed_inds] = 1.0
-
-      curr_mask = curr_mask.to(self.device)
+      # Vectorized mask generation
+      curr_mask = self.cfg.decoder_vocab.get_allowed_tokens_mask(
+          generated_sequences_ids[:, :step_idx], self.device
+      ).float()
 
       # Get logits for the next token for all (B * num_samples) sequences
       # Shape: (B*S, V)
