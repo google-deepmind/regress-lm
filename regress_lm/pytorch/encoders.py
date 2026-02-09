@@ -576,11 +576,13 @@ class T5GemmaEncoder(BaseEncoder):
     super().__init__()
 
     if not random_init:  # Pretrained model.
+      config = transformers.AutoConfig.from_pretrained(model_name)
+      config.dropout_rate = dropout
+      config.attention_dropout = dropout
       model = transformers.T5GemmaForConditionalGeneration.from_pretrained(
           model_name,
+          config=config,
           attn_implementation=attn_implementation,
-          dropout_rate=dropout,
-          attention_dropout=dropout,
       )
       if vocab_size != model.config.vocab_size:
         logging.info(

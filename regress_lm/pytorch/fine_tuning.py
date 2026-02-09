@@ -16,7 +16,6 @@
 
 import math
 from typing import Callable, Iterator, Sequence, cast
-import numpy as np
 import peft
 from regress_lm import core
 from regress_lm.pytorch import data_utils
@@ -60,6 +59,12 @@ class _EarlyStoppingTracker:
     if self.patience is None:  # Early stopping is disabled.
       return False
     return self.epochs_without_improvement >= self.patience
+
+
+def _cycle_loader(dataloader: utils.data.DataLoader):
+  while True:
+    for batch in dataloader:
+      yield batch
 
 
 Parameters = Iterator[nn.Parameter]
@@ -149,6 +154,7 @@ class PyTorchFineTuner(core.FineTuner):
     if self.batch_size_per_device is not None:
       micro_batch_size = min(effective_batch_size, self.batch_size_per_device)
     grad_acc_steps = math.ceil(effective_batch_size / micro_batch_size)
+    num_updates_per_epoch = math.ceil(len(examples) / effective_batch_size)
 
     train_tensors = self.target_model.converter.convert_examples(examples)
     valid_tensors = self.target_model.converter.convert_examples(
@@ -160,11 +166,15 @@ class PyTorchFineTuner(core.FineTuner):
         batch_size=micro_batch_size,
         shuffle=True,
         generator=g,
+        drop_last=True,
     )
+    train_iter = _cycle_loader(train_dl)
+
     valid_dl = utils.data.DataLoader(
         data_utils.DictTensorDataset(valid_tensors),
         batch_size=micro_batch_size,
         shuffle=False,
+        drop_last=False,
     )
 
     # Perform an initial validation run before training
@@ -173,7 +183,9 @@ class PyTorchFineTuner(core.FineTuner):
     tracker.update(initial_val_loss, self.target_model)
 
     for _ in range(self.max_epochs):
-      self._run_training_epoch(train_dl, grad_acc_steps)
+      self._run_training_epoch(
+          train_iter, num_updates_per_epoch, grad_acc_steps
+      )
       val_loss = self._run_validation_epoch(valid_dl)
       tracker.update(val_loss, self.target_model)
       if tracker.should_stop():
@@ -192,36 +204,32 @@ class PyTorchFineTuner(core.FineTuner):
       self.optimizer.load_state_dict(state)
 
   def _run_training_epoch(
-      self, train_dl: utils.data.DataLoader, grad_acc_steps: int
+      self,
+      train_dl: Iterator[dict[str, torch.Tensor]],
+      num_updates: int,
+      grad_acc_steps: int,
   ):
-    """Runs a single training epoch with gradient accumulation."""
     self.target_model.train()
-    self.optimizer.zero_grad()
 
-    for i, batch in enumerate(train_dl):
-      self._forward_backward_pass(batch, grad_acc_steps)
-
-      if (i + 1) % grad_acc_steps == 0:
-        self.optimizer.step()
-        self.optimizer.zero_grad()
-
-    # Final step for any remaining gradients.
-    if len(train_dl) % grad_acc_steps != 0:
-      self.optimizer.step()
+    for _ in range(num_updates):
       self.optimizer.zero_grad()
 
-  def _forward_backward_pass(
-      self, batch: dict[str, torch.Tensor], grad_acc_steps: int
-  ) -> None:
-    losses, _ = self.target_model.compute_losses_and_metrics(batch)
-    loss = losses.mean()
-    (loss / grad_acc_steps).backward()
+      for _ in range(grad_acc_steps):
+        batch = next(train_dl)
+        losses, _ = self.target_model.compute_losses_and_metrics(batch)
+        (losses.mean() / grad_acc_steps).backward()
+
+      self.optimizer.step()
 
   def _run_validation_epoch(self, valid_dl: utils.data.DataLoader) -> float:
     self.target_model.eval()
-    all_val_losses = []
+    total_loss = 0.0
+    total_samples = 0
+
     with torch.no_grad():
       for valid_batch in valid_dl:
         losses, _ = self.target_model.compute_losses_and_metrics(valid_batch)
-        all_val_losses.extend(losses.cpu().numpy())
-    return float(np.mean(all_val_losses))
+        total_loss += losses.sum().item()
+        total_samples += len(losses)
+
+    return total_loss / total_samples
