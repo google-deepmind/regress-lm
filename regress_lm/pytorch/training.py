@@ -118,6 +118,7 @@ class Trainer:
         num_workers=num_data_workers,
         collate_fn=self._model.converter.convert_examples,
         drop_last=True,  # Recommended to avoid model re-compilations.
+        pin_memory=True,
     )
 
     self._val_dl = utils.data.DataLoader(
@@ -128,6 +129,7 @@ class Trainer:
         num_workers=num_data_workers,
         collate_fn=self._model.converter.convert_examples,
         drop_last=True,  # Recommended to avoid model re-compilations.
+        pin_memory=True,
     )
 
   def run_validation_epoch(self) -> dict[str, float]:
@@ -167,8 +169,10 @@ class Trainer:
         val_metrics[f'validation_{key}'] = (value / total_items).item()
     return val_metrics
 
-  def run_train_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
-    """Runs train step and returns metrics."""
+  def run_train_step(
+      self, batch: dict[str, torch.Tensor], return_metrics: bool = True
+  ) -> dict[str, float]:
+    """Runs train step and optionally returns metrics."""
     self._training_wrapper.train()
     self._global_step += 1
 
@@ -189,6 +193,9 @@ class Trainer:
       self._scheduler.step()
       self._optimizer.zero_grad(set_to_none=True)
 
+    if not return_metrics:
+      return {}  # Don't return metrics. Avoids GPU/CPU sync.
+
     if self._use_ddp:
       for k in metrics:
         metrics[k] = metrics[k].to(self._model.device, dtype=torch.float32)
@@ -197,6 +204,7 @@ class Trainer:
 
     train_metrics = {f'train_{k}': v.item() for k, v in metrics.items()}
     train_metrics['train_perplexity'] = np.exp(train_metrics['train_loss_mean'])
+    train_metrics['learning_rate'] = self._optimizer.param_groups[0]['lr']
     return train_metrics
 
   def save_checkpoint(

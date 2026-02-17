@@ -19,7 +19,7 @@ import torch
 from absl.testing import absltest
 
 
-class T5gemmaModelTest(absltest.TestCase):
+class T5GemmaModelTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
