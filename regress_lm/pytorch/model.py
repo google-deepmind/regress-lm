@@ -58,9 +58,9 @@ class PyTorchModelConfig:
     """Factory method to create a data converter from this config."""
     return PyTorchConverter(config=self)
 
-  def make_model(self, compile_model: bool = True) -> 'PyTorchModel':
+  def make_model(self) -> 'PyTorchModel':
     """Factory method to create a model from this config."""
-    return PyTorchModel(self, compile_model)
+    return PyTorchModel(self)
 
 
 ThreadPoolExecutor = futures.ThreadPoolExecutor
@@ -139,7 +139,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
   with batchnorm and dropout.
   """
 
-  def __init__(self, config: PyTorchModelConfig, compile_model: bool):
+  def __init__(self, config: PyTorchModelConfig):
     super().__init__()
     self.cfg = config
 
@@ -151,9 +151,6 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         max_decoder_len=self.cfg.decode_len + 1,
         **self.cfg.architecture_kwargs,
     )
-
-    if compile_model:
-      self.encoder_decoder = torch.compile(self.encoder_decoder)
 
   @property
   def device(self) -> torch.device:

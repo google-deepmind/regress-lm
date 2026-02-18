@@ -42,7 +42,7 @@ class TrainingTest(absltest.TestCase):
         max_input_len=4,
         architecture_kwargs=self.architecture_kwargs,
     )
-    self.model = self.cfg.make_model(compile_model=False)
+    self.model = self.cfg.make_model()
 
     ds = data_utils.ExampleDataset([
         core.Example(x='hello', y=1.0),
@@ -59,6 +59,7 @@ class TrainingTest(absltest.TestCase):
         batch_size=2,
         use_ddp=False,  # Can't test distributed training.
         num_data_workers=2,
+        compile_model=False,  # No compiler for CPU case.
     )
 
   def test_train_and_validation_smoke(self):

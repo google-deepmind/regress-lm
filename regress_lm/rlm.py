@@ -60,14 +60,11 @@ class RegressLM:
     fine_tuner.fine_tune(examples, validation_examples, seed)
 
   @classmethod
-  def from_scratch(cls, device: str | None = None, **kwargs) -> "RegressLM":
+  def from_scratch(cls, **kwargs) -> "RegressLM":
     """Creates a RegressLM with default model and finetuner."""
     # pylint: disable=g-import-not-at-top
-    import torch
     from regress_lm.pytorch import model as pytorch_model
     from regress_lm.pytorch import encoders
-
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     architecture_kwargs = dict(
         d_model=kwargs.get("d_model", 512),
@@ -89,8 +86,7 @@ class RegressLM:
         architecture_kwargs=architecture_kwargs,
     )
 
-    model = config.make_model(compile_model=kwargs.get("compile_model", True))
-    return cls(model.to(device))
+    return cls(model=config.make_model())
 
   @classmethod
   def from_t5gemma_encoder(
@@ -98,16 +94,12 @@ class RegressLM:
       model_name: str = "google/t5gemma-s-s-prefixlm",
       freeze_encoder: bool = False,
       random_init: bool = False,
-      device: str | None = None,
       **kwargs,
   ) -> "RegressLM":
     """T5Gemma encoder w/ custom decoder."""
     # pylint: disable=g-import-not-at-top
-    import torch
     from regress_lm.pytorch import model as pytorch_model
     from regress_lm.pytorch import encoders
-
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     architecture_kwargs = dict(
         d_model=kwargs.get("d_model", 512),
@@ -134,8 +126,7 @@ class RegressLM:
         architecture_kwargs=architecture_kwargs,
     )
 
-    model = config.make_model(compile_model=kwargs.get("compile_model", True))
-    return cls(model.to(device))
+    return cls(model=config.make_model())
 
   def sample(
       self, xs: Sequence[core.ExampleInput], num_samples: int

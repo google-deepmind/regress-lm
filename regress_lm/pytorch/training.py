@@ -92,15 +92,28 @@ class Trainer:
       grad_acc_steps: int = 1,
       use_ddp: bool = False,
       num_data_workers: int = 0,
+      compile_model: bool = True,
   ):
-    self._model = model  # NOTE: Only used as a template if distributed.
+    # NOTE: `model` only used as a template if distributed.
+    self._model = model
     self._training_wrapper = _TrainingModelWrapper(self._model)
+
+    current_device = 'cpu'
+    if torch.cuda.is_available():
+      current_device = torch.cuda.current_device()
+      self._training_wrapper.to(f'cuda:{current_device}')
+
     self._grad_acc_steps = grad_acc_steps
     self._use_ddp = use_ddp
+
     if self._use_ddp:
       self._training_wrapper = nn.parallel.DistributedDataParallel(
-          self._training_wrapper
+          self._training_wrapper,
+          device_ids=[current_device],
+          output_device=current_device,
       )
+    if compile_model:
+      self._training_wrapper = torch.compile(self._training_wrapper)
 
     self._optimizer = optimizer_factory(self._training_wrapper.parameters())
     self._scheduler = scheduler_factory(self._optimizer)
@@ -252,12 +265,13 @@ class Trainer:
 
   @property
   def model(self) -> PyTorchModel:
-    """Returns the original model, accounting for distributed wrapping."""
-    if isinstance(self._training_wrapper, nn.parallel.DistributedDataParallel):
-      # We must return it from wrapper's module, which contains true weights.
-      return self._training_wrapper.module.model  # pytype:disable=attribute-error
-    else:
-      return self._model
+    """Returns original model, accounting for compile and DDP."""
+    module = self._training_wrapper
+    if hasattr(module, '_orig_mod'):
+      module = module._orig_mod  # pylint: disable=protected-access
+    if isinstance(module, nn.parallel.DistributedDataParallel):
+      return module.module.model
+    return self._model
 
   @property
   def training_wrapper(self) -> nn.Module:

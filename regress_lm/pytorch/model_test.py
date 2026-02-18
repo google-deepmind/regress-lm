@@ -49,7 +49,7 @@ class ModelTest(parameterized.TestCase):
         max_input_len=4,
         architecture_kwargs=self.architecture_kwargs,
     )
-    self.model = self.cfg.make_model(compile_model=False)
+    self.model = self.cfg.make_model()
 
     self.fine_tuner = fine_tuning.PyTorchFineTuner(
         self.model,
@@ -141,7 +141,7 @@ class ModelTest(parameterized.TestCase):
         decoder_vocab=vocabs.DecoderVocab(tokenizer),
         max_input_len=4,
     )
-    model = cfg.make_model(compile_model=False)
+    model = cfg.make_model()
     examples = [
         core.Example(x='hello', y=float('-inf')),
         core.Example(x='bye', y=float('-inf')),
@@ -167,7 +167,7 @@ class ModelTest(parameterized.TestCase):
         max_input_len=4,
         max_num_objs=2,
     )
-    model = cfg.make_model(compile_model=False)
+    model = cfg.make_model()
 
     examples = [core.ExampleInput(x='hello'), core.ExampleInput(x='world')]
     batch = model.converter.convert_inputs(examples)
