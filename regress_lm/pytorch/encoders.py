@@ -18,15 +18,18 @@ import abc
 import copy
 import enum
 import functools
+import logging
 import math
+import os
 from typing import Callable, Literal
-from absl import logging
 # The following import is needed for loading T5Gemma models.
 import safetensors.torch  # pylint: disable=unused-import
 import torch
 from torch import nn
 from torch.nn import functional as F
 import transformers
+transformers_v5 = transformers
+
 
 # pylint: disable=g-import-not-at-top
 try:
@@ -562,7 +565,7 @@ class PerformerEncoder(BaseEncoder):
 
 
 class T5GemmaEncoder(BaseEncoder):
-  """Wrapper around a Hugging Face T5Gemma encoder."""
+  """Wrapper around a Hugging Face T5Gemma / T5Gemma2 encoder."""
 
   def __init__(
       self,
@@ -574,12 +577,24 @@ class T5GemmaEncoder(BaseEncoder):
       dropout: float = 0.0,
   ):
     super().__init__()
+    # pylint:disable=invalid-name
+
+    if "t5gemma-2" in model_name:
+      AutoConfig = transformers_v5.AutoConfig
+      T5GemmaForConditionalGeneration = (
+          transformers_v5.T5Gemma2ForConditionalGeneration
+      )
+    else:
+      AutoConfig = transformers.AutoConfig
+      T5GemmaForConditionalGeneration = (
+          transformers.T5GemmaForConditionalGeneration
+      )
 
     if not random_init:  # Pretrained model.
-      config = transformers.AutoConfig.from_pretrained(model_name)
+      config = AutoConfig.from_pretrained(model_name)
       config.dropout_rate = dropout
       config.attention_dropout = dropout
-      model = transformers.T5GemmaForConditionalGeneration.from_pretrained(
+      model = T5GemmaForConditionalGeneration.from_pretrained(
           model_name,
           config=config,
           attn_implementation=attn_implementation,
@@ -592,11 +607,11 @@ class T5GemmaEncoder(BaseEncoder):
         )
         model.resize_token_embeddings(vocab_size)
     else:  # Random initialization.
-      config = transformers.AutoConfig.from_pretrained(model_name)
+      config = AutoConfig.from_pretrained(model_name)
       config.vocab_size = vocab_size
       config.dropout_rate = dropout
       config.attention_dropout = dropout
-      model = transformers.T5GemmaForConditionalGeneration(config)
+      model = T5GemmaForConditionalGeneration(config)
 
     self.encoder = model.get_encoder()
 
@@ -617,7 +632,10 @@ class T5GemmaEncoder(BaseEncoder):
 
   @property
   def hidden_dim(self) -> int:
-    return self.encoder.config.hidden_size
+    config = self.encoder.config
+    if hasattr(config, "text_config"):
+      return config.text_config.hidden_size
+    return config.hidden_size
 
 
 @enum.unique

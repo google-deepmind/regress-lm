@@ -36,6 +36,7 @@ class RegressLM:
       **kwargs,
   ) -> None:
     """Fine-tunes the model against the provided examples."""
+
     # pylint: disable=g-import-not-at-top
     from torch import optim
     from regress_lm.pytorch import fine_tuning as pytorch_fine_tuning
@@ -62,6 +63,7 @@ class RegressLM:
   @classmethod
   def from_scratch(cls, **kwargs) -> "RegressLM":
     """Creates a RegressLM with default model and finetuner."""
+
     # pylint: disable=g-import-not-at-top
     from regress_lm.pytorch import model as pytorch_model
     from regress_lm.pytorch import encoders
@@ -96,7 +98,8 @@ class RegressLM:
       random_init: bool = False,
       **kwargs,
   ) -> "RegressLM":
-    """T5Gemma encoder w/ custom decoder."""
+    """T5Gemma (v1 or 2) encoder w/ custom decoder."""
+
     # pylint: disable=g-import-not-at-top
     from regress_lm.pytorch import model as pytorch_model
     from regress_lm.pytorch import encoders
