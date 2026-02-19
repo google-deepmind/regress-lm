@@ -14,6 +14,7 @@
 
 """Custom Pytorch optimizers."""
 
+from torch import nn
 from torch import optim
 
 
@@ -53,3 +54,44 @@ class HybridOptimizer(optim.Optimizer):
   def load_state_dict(self, sd):
     self.optimizer_1.load_state_dict(sd["optimizer_1"])
     self.optimizer_2.load_state_dict(sd["optimizer_2"])
+
+
+NON_MUON_NAMES = [
+    "embed",  # Catches self.tgt_tok_emb and encoder.embedding
+    "shared",  # Standard for tied weights
+    "generator",  # Catches self.generator (MLP to decoder vocab)
+    "lm_head",  # Safety for T5Gemma/Transformers backends
+    "output",  # Safety for various encoder types
+]
+
+
+def muon_adamw(
+    params: list[tuple[str, nn.Parameter]],
+    lr: float,
+    weight_decay: float = 1e-2,
+):
+  """Returns a hybrid optimizer with Muon and AdamW."""
+  muon_params, adamw_decay, adamw_no_decay = [], [], []
+
+  for name, p in params:
+    if p.ndim == 2 and not any(s in name.lower() for s in NON_MUON_NAMES):
+      muon_params.append(p)
+    elif p.ndim < 2:
+      adamw_no_decay.append(p)  # Biases and LayerNorm scales
+    else:
+      adamw_decay.append(p)  # Embeddings and Output heads (even if 2D)
+
+  muon_opt = optim.Muon(
+      muon_params,
+      lr=lr,
+      weight_decay=weight_decay,
+      adjust_lr_fn="match_rms_adamw",
+  )
+  adamw_opt = optim.AdamW(
+      [
+          {"params": adamw_decay, "weight_decay": weight_decay},
+          {"params": adamw_no_decay, "weight_decay": 0.0},
+      ],
+      lr=lr,
+  )
+  return HybridOptimizer(muon_opt, adamw_opt)

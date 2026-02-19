@@ -77,13 +77,16 @@ def cycle_dataloader(dataloader: utils.data.DataLoader[core.Example]):
     epoch += 1
 
 
+NamedParameter = tuple[str, nn.Parameter]
+
+
 class Trainer:
   """RegressLM large-scale training process, including distributed cases."""
 
   def __init__(
       self,
       model: PyTorchModel,
-      optimizer_factory: Callable[[Parameters], optim.Optimizer],
+      optimizer_factory: Callable[[Iterator[NamedParameter]], optim.Optimizer],
       scheduler_factory: Callable[[optim.Optimizer], lr_scheduler.LRScheduler],
       train_ds: utils.data.Dataset[core.Example],
       validation_ds: utils.data.Dataset[core.Example],
@@ -115,7 +118,9 @@ class Trainer:
     if compile_model:
       self._training_wrapper = torch.compile(self._training_wrapper)
 
-    self._optimizer = optimizer_factory(self._training_wrapper.parameters())
+    self._optimizer = optimizer_factory(
+        self._training_wrapper.named_parameters()
+    )
     self._scheduler = scheduler_factory(self._optimizer)
     self._global_step = 0
 
