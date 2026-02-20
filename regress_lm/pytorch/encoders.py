@@ -18,15 +18,18 @@ import abc
 import copy
 import enum
 import functools
+import logging
 import math
+import os
 from typing import Callable, Literal
-from absl import logging
 # The following import is needed for loading T5Gemma models.
 import safetensors.torch  # pylint: disable=unused-import
 import torch
 from torch import nn
 from torch.nn import functional as F
 import transformers
+transformers_v5 = transformers
+
 
 # pylint: disable=g-import-not-at-top
 try:
@@ -562,7 +565,7 @@ class PerformerEncoder(BaseEncoder):
 
 
 class T5GemmaEncoder(BaseEncoder):
-  """Wrapper around a Hugging Face T5Gemma encoder."""
+  """Wrapper around a Hugging Face T5Gemma / T5Gemma2 encoder."""
 
   def __init__(
       self,
@@ -572,17 +575,33 @@ class T5GemmaEncoder(BaseEncoder):
       freeze_weights: bool = False,
       attn_implementation: str = "sdpa",  # Flash causes issues ATM.
       dropout: float = 0.0,
+      use_grad_ckpt: bool = False,
+      multimodal: bool = False,
+      dtype: torch.dtype = torch.float32,  # NOTE: Internally bf16 crashes.
   ):
     super().__init__()
+    # pylint:disable=invalid-name
+
+    if "t5gemma-2" in model_name:
+      AutoConfig = transformers_v5.AutoConfig
+      T5GemmaForConditionalGeneration = (
+          transformers_v5.T5Gemma2ForConditionalGeneration
+      )
+    else:
+      AutoConfig = transformers.AutoConfig
+      T5GemmaForConditionalGeneration = (
+          transformers.T5GemmaForConditionalGeneration
+      )
 
     if not random_init:  # Pretrained model.
-      config = transformers.AutoConfig.from_pretrained(model_name)
+      config = AutoConfig.from_pretrained(model_name)
       config.dropout_rate = dropout
       config.attention_dropout = dropout
-      model = transformers.T5GemmaForConditionalGeneration.from_pretrained(
+      model = T5GemmaForConditionalGeneration.from_pretrained(
           model_name,
           config=config,
           attn_implementation=attn_implementation,
+          torch_dtype=dtype,
       )
       if vocab_size != model.config.vocab_size:
         logging.info(
@@ -592,13 +611,23 @@ class T5GemmaEncoder(BaseEncoder):
         )
         model.resize_token_embeddings(vocab_size)
     else:  # Random initialization.
-      config = transformers.AutoConfig.from_pretrained(model_name)
+      config = AutoConfig.from_pretrained(model_name)
       config.vocab_size = vocab_size
       config.dropout_rate = dropout
       config.attention_dropout = dropout
-      model = transformers.T5GemmaForConditionalGeneration(config)
+      model = T5GemmaForConditionalGeneration(config)
 
     self.encoder = model.get_encoder()
+
+    # Remove multimodal components (T5Gemma2) if not needed -- unneeded params
+    # cause errors during DDP setup.
+    if hasattr(self.encoder, "vision_tower") and not multimodal:
+      del self.encoder.vision_tower
+    if hasattr(self.encoder, "multi_modal_projector") and not multimodal:
+      del self.encoder.multi_modal_projector
+
+    if use_grad_ckpt:
+      self.encoder.gradient_checkpointing_enable()
 
     if freeze_weights:
       for param in self.encoder.parameters():
@@ -617,7 +646,10 @@ class T5GemmaEncoder(BaseEncoder):
 
   @property
   def hidden_dim(self) -> int:
-    return self.encoder.config.hidden_size
+    config = self.encoder.config
+    if hasattr(config, "text_config"):
+      return config.text_config.hidden_size
+    return config.hidden_size
 
 
 @enum.unique
