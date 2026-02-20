@@ -48,6 +48,7 @@ class ModelTest(parameterized.TestCase):
         decoder_vocab=self.decoder_vocab,
         max_input_len=4,
         architecture_kwargs=self.architecture_kwargs,
+        num_workers=0,
     )
     self.model = self.cfg.make_model()
 
