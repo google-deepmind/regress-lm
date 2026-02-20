@@ -67,8 +67,8 @@ NON_MUON_NAMES = [
 
 def muon_adamw(
     params: list[tuple[str, nn.Parameter]],
-    lr: float,
-    weight_decay: float = 1e-2,
+    lr: float = 1e-4,
+    weight_decay: float = 1e-3,
 ):
   """Returns a hybrid optimizer with Muon and AdamW."""
   muon_params, adamw_decay, adamw_no_decay = [], [], []
