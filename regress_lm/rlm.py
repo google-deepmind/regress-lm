@@ -115,6 +115,7 @@ class RegressLM:
             "freeze_weights": freeze_encoder,
             "random_init": random_init,
             "dropout": kwargs.get("dropout", 0.0),
+            "use_grad_ckpt": kwargs.get("use_grad_ckpt", False),
         },
     )
 

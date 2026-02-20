@@ -160,7 +160,12 @@ class Trainer:
     )
     total_items = torch.tensor(0)
 
-    with torch.no_grad():
+    if self._use_ddp:  # Don't sync forward pass at validation.
+      no_sync_ctx = self._training_wrapper.no_sync()
+    else:
+      no_sync_ctx = contextlib.nullcontext()
+
+    with torch.no_grad(), no_sync_ctx:
       for val_batch in self._val_dl:
         _, metrics = self._training_wrapper.forward(val_batch)
         bsz = next(iter(val_batch.values())).size(0)

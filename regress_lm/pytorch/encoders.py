@@ -575,6 +575,9 @@ class T5GemmaEncoder(BaseEncoder):
       freeze_weights: bool = False,
       attn_implementation: str = "sdpa",  # Flash causes issues ATM.
       dropout: float = 0.0,
+      use_grad_ckpt: bool = False,
+      multimodal: bool = False,
+      dtype: torch.dtype = torch.float32,  # NOTE: Internally bf16 crashes.
   ):
     super().__init__()
     # pylint:disable=invalid-name
@@ -598,6 +601,7 @@ class T5GemmaEncoder(BaseEncoder):
           model_name,
           config=config,
           attn_implementation=attn_implementation,
+          torch_dtype=dtype,
       )
       if vocab_size != model.config.vocab_size:
         logging.info(
@@ -614,6 +618,16 @@ class T5GemmaEncoder(BaseEncoder):
       model = T5GemmaForConditionalGeneration(config)
 
     self.encoder = model.get_encoder()
+
+    # Remove multimodal components (T5Gemma2) if not needed -- unneeded params
+    # cause errors during DDP setup.
+    if hasattr(self.encoder, "vision_tower") and not multimodal:
+      del self.encoder.vision_tower
+    if hasattr(self.encoder, "multi_modal_projector") and not multimodal:
+      del self.encoder.multi_modal_projector
+
+    if use_grad_ckpt:
+      self.encoder.gradient_checkpointing_enable()
 
     if freeze_weights:
       for param in self.encoder.parameters():
