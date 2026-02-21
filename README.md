@@ -1,10 +1,11 @@
 # RegressLM: Easy Text-to-Text Regression
+
 [![Continuous Integration](https://github.com/google-deepmind/regress-lm/actions/workflows/core_test.yml/badge.svg)](https://github.com/google-deepmind/regress-lm/actions?query=branch%3Amain)
 
-  [**Google Research Blog**](https://research.google/blog/simulating-large-systems-with-regression-language-models/)
+[**Google Research Blog**](https://research.google/blog/simulating-large-systems-with-regression-language-models/)
 | [**Setup**](#setup)
 | [**Usage**](#usage)
-| [**Extended Usage**](#extended_usage)
+| [**Extended Usage**](#boosting-performance-and-extended-applications)
 | [**Citing**](#citing)
 
 **Xingyou Song**<sup>\*</sup>, **Yash Akhauri**<sup>\*</sup>, Arissa
@@ -12,6 +13,7 @@ Wongpanich, Dara Bahri, Michal Lukasik, Jiyoun Ha, Adrian N. Reyes, and Bryan
 Lewandowski.
 
 ## Overview
+
 RegressLM is a library for text-to-text regression, applicable to any input
 string representation and allows pretraining and fine-tuning over multiple
 regression tasks.
@@ -25,6 +27,7 @@ regression tasks.
 </figure>
 
 ## Setup <a name="setup"></a>
+
 Get started by installing the core libraries:
 
 ```
@@ -38,10 +41,12 @@ pip install ".[extras]"
 ```
 
 ## Usage <a name="usage"></a>
+
 There are two main stages: **inference** and **pretraining** (optional but
 recommended).
 
 ## Inference
+
 The intended use-case is to import a RegressLM class, which can decode
 floating-point predictions from a given input, and also fine-tune against new
 data.
@@ -63,6 +68,7 @@ samples1, samples2 = reg_lm.sample([query1, query2], num_samples=128)
 ```
 
 ## Pretraining
+
 To produce better initial checkpoints for transfer learning, we recommend
 the user pretrains over large amounts of their own training data. Example
 pseudocode with PyTorch:
@@ -78,10 +84,12 @@ for batch in trainer.train_dl:
 ```
 
 ## Boosting Performance and Extended Applications <a name="extended_usage"></a>
+
 Below, we describe ways to improve performance and extended applications, using
 lower level API.
 
 ### Train Custom Vocabulary
+
 You can generate a custom vocabulary, trained on an offline corpus of data
 `mydata.txt`:
 
@@ -90,6 +98,7 @@ encoder_vocab = SentencePieceVocab.from_corpus(corpus_path='mydata.txt', vocab_s
 ```
 
 ### Larger Sizes
+
 Larger model sizes may increase performance, although with more computational
 cost:
 
@@ -98,6 +107,7 @@ config = PyTorchModelConfig(architecture_kwargs=dict(num_encoder_layers=12, num_
 ```
 
 ### Multi-objective Support
+
 The RLM can decode a concatenated sequence of tokens too, for multi-objective
 regression:
 
@@ -113,6 +123,7 @@ samples = reg_lm.sample([core.ExampleInput(x='hi')], num_samples=128)[0]
 ```
 
 ### Pretrained Third-Party Models
+
 [T5Gemma](https://developers.googleblog.com/en/t5gemma/) encoder + our
 default decoder is supported:
 
@@ -128,6 +139,7 @@ model = t5gemma_model.T5GemmaModelConfig('google/t5gemma-s-s-prefixlm').make_mod
 ```
 
 ### Long-Context
+
 To support 100K+ input token lengths, alternative encoders (e.g.
 [`mamba-ssm`](https://github.com/state-spaces/mamba) and [Performer](https://research.google/blog/rethinking-attention-with-performers/)) are supported:
 
