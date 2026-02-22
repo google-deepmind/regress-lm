@@ -19,6 +19,7 @@ from typing import Callable, Iterator, Sequence, cast
 import peft
 from regress_lm import core
 from regress_lm.pytorch import data_utils
+from regress_lm.pytorch import optimizers as optimizers_lib
 import torch
 from torch import nn
 from torch import optim
@@ -67,7 +68,7 @@ def _cycle_loader(dataloader: utils.data.DataLoader):
       yield batch
 
 
-Parameters = Iterator[nn.Parameter]
+NamedParameters = optimizers_lib.NamedParameters
 
 # TODO: Does this match all param names in our model?
 DEFAULT_LORA_TARGET_MODULES = ("q_proj", "v_proj", "k_proj", "out_proj")
@@ -79,7 +80,7 @@ class PyTorchFineTuner(core.FineTuner):
   def __init__(
       self,
       model: core.Model[torch.Tensor],
-      optimizer_factory: Callable[[Parameters], optim.Optimizer],
+      optimizer_factory: Callable[[NamedParameters], optim.Optimizer],
       *,
       max_epochs: int = 100,
       batch_size: int | None = None,
@@ -127,10 +128,10 @@ class PyTorchFineTuner(core.FineTuner):
           bias="none",
       )
       self.lora_wrapper = peft.get_peft_model(model, self.lora_config)
-      self.optimizer = optimizer_factory(self.lora_wrapper.parameters())
+      self.optimizer = optimizer_factory(self.lora_wrapper.named_parameters())
     else:
       self.lora_wrapper = None
-      self.optimizer = optimizer_factory(self.model.parameters())
+      self.optimizer = optimizer_factory(self.model.named_parameters())
 
   @property
   def target_model(self) -> nn.Module:
@@ -199,7 +200,9 @@ class PyTorchFineTuner(core.FineTuner):
       state = self.optimizer.state_dict()
       self.lora_wrapper.merge_and_unload()
       self.lora_wrapper = peft.get_peft_model(self.model, self.lora_config)
-      self.optimizer = self.optimizer_factory(self.lora_wrapper.parameters())
+      self.optimizer = self.optimizer_factory(
+          self.lora_wrapper.named_parameters()
+      )
       # Might not work, different param keys.
       self.optimizer.load_state_dict(state)
 

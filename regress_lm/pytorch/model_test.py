@@ -16,7 +16,6 @@
 
 import copy
 import dataclasses
-import functools
 from typing import cast
 import numpy as np
 from regress_lm import core
@@ -24,6 +23,7 @@ from regress_lm import tokenizers
 from regress_lm import vocabs
 from regress_lm.pytorch import fine_tuning
 from regress_lm.pytorch import model as model_lib
+from regress_lm.pytorch import optimizers
 import torch
 from torch import optim
 from absl.testing import absltest
@@ -39,9 +39,7 @@ class ModelTest(parameterized.TestCase):
     self.decoder_tokenizer = tokenizers.P10Tokenizer()
     self.decoder_vocab = vocabs.DecoderVocab(self.decoder_tokenizer)
     self.architecture_kwargs = dict(
-        d_model=16,
-        num_encoder_layers=1,
-        num_decoder_layers=1,
+        d_model=16, num_encoder_layers=1, num_decoder_layers=1
     )
     self.cfg = model_lib.PyTorchModelConfig(
         encoder_vocab=self.encoder_vocab,
@@ -54,8 +52,8 @@ class ModelTest(parameterized.TestCase):
 
     self.fine_tuner = fine_tuning.PyTorchFineTuner(
         self.model,
-        optimizer_factory=lambda params: optim.Adafactor(
-            filter(lambda p: p.requires_grad, params), lr=0.1
+        optimizer_factory=optimizers.unnamed(
+            lambda p: optim.Adafactor(p, lr=0.1)
         ),
         max_epochs=1,
     )
@@ -192,12 +190,16 @@ class ModelTest(parameterized.TestCase):
 
     fine_tuner_base = fine_tuning.PyTorchFineTuner(
         model=self.model,
-        optimizer_factory=functools.partial(optim.Adafactor, lr=1e-4),
+        optimizer_factory=optimizers.unnamed(
+            lambda p: optim.Adafactor(p, lr=1e-4)
+        ),
         max_epochs=1,
     )
     fine_tuner_microbatch = fine_tuning.PyTorchFineTuner(
         model=model_microbatch,
-        optimizer_factory=functools.partial(optim.Adafactor, lr=1e-4),
+        optimizer_factory=optimizers.unnamed(
+            lambda p: optim.Adafactor(p, lr=1e-4)
+        ),
         max_epochs=1,
         batch_size_per_device=2,
     )
@@ -250,8 +252,8 @@ class ModelTest(parameterized.TestCase):
     mock_tuner = MockFineTuner(
         validation_losses=validation_losses,
         model=self.model,
-        optimizer_factory=lambda params: optim.Adafactor(
-            filter(lambda p: p.requires_grad, params), lr=0.1
+        optimizer_factory=optimizers.unnamed(
+            lambda p: optim.Adafactor(p, lr=0.1)
         ),
         max_epochs=10,  # High max_epochs to ensure early stopping is the cause.
         patience=2,
@@ -275,7 +277,7 @@ class ModelTest(parameterized.TestCase):
     # Adafactor is too conservative when using LoRA, use AdamW instead.
     lora_fine_tuner = fine_tuning.PyTorchFineTuner(
         model=self.model,
-        optimizer_factory=functools.partial(optim.AdamW, lr=0.1),
+        optimizer_factory=optimizers.unnamed(lambda p: optim.AdamW(p, lr=0.1)),
         max_epochs=5,  # Need more steps to move model.
         patience=None,
         use_lora=True,

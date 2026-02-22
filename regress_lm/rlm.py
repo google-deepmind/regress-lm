@@ -38,14 +38,14 @@ class RegressLM:
     """Fine-tunes the model against the provided examples."""
 
     # pylint: disable=g-import-not-at-top
-    from torch import optim
     from regress_lm.pytorch import fine_tuning as pytorch_fine_tuning
+    from regress_lm.pytorch import optimizers
 
     # NOTE: This adds extra GPU memory usage, so we don't add into init.
     fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
         self.model,
         optimizer_factory=kwargs.get("optimizer_factory", None)
-        or functools.partial(optim.Adafactor, lr=1e-4),
+        or functools.partial(optimizers.muon_adamw, lr=1e-4),
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),

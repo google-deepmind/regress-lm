@@ -14,8 +14,18 @@
 
 """Custom Pytorch optimizers."""
 
+from typing import Callable
+
 from torch import nn
 from torch import optim
+
+NamedParameters = list[tuple[str, nn.Parameter]]
+
+
+def unnamed(
+    factory: Callable[[list[nn.Parameter]], optim.Optimizer],
+) -> Callable[[NamedParameters], optim.Optimizer]:
+  return lambda named_params: factory([p for _, p in named_params])
 
 
 class HybridOptimizer(optim.Optimizer):
@@ -56,7 +66,7 @@ class HybridOptimizer(optim.Optimizer):
     self.optimizer_2.load_state_dict(sd["optimizer_2"])
 
 
-NON_MUON_NAMES = [
+_NON_MUON_NAMES = [
     "embed",  # Catches self.tgt_tok_emb and encoder.embedding
     "shared",  # Standard for tied weights
     "generator",  # Catches self.generator (MLP to decoder vocab)
@@ -74,7 +84,7 @@ def muon_adamw(
   muon_params, adamw_decay, adamw_no_decay = [], [], []
 
   for name, p in params:
-    if p.ndim == 2 and not any(s in name.lower() for s in NON_MUON_NAMES):
+    if p.ndim == 2 and not any(s in name.lower() for s in _NON_MUON_NAMES):
       muon_params.append(p)
     elif p.ndim < 2:
       adamw_no_decay.append(p)  # Biases and LayerNorm scales
