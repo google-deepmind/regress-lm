@@ -36,15 +36,16 @@ class RegressLM:
       **kwargs,
   ) -> None:
     """Fine-tunes the model against the provided examples."""
+
     # pylint: disable=g-import-not-at-top
-    from torch import optim
     from regress_lm.pytorch import fine_tuning as pytorch_fine_tuning
+    from regress_lm.pytorch import optimizers
 
     # NOTE: This adds extra GPU memory usage, so we don't add into init.
     fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
         self.model,
         optimizer_factory=kwargs.get("optimizer_factory", None)
-        or functools.partial(optim.Adafactor, lr=1e-4),
+        or functools.partial(optimizers.muon_adamw, lr=1e-4),
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),
@@ -60,20 +61,19 @@ class RegressLM:
     fine_tuner.fine_tune(examples, validation_examples, seed)
 
   @classmethod
-  def from_scratch(cls, device: str | None = None, **kwargs) -> "RegressLM":
+  def from_scratch(cls, **kwargs) -> "RegressLM":
     """Creates a RegressLM with default model and finetuner."""
+
     # pylint: disable=g-import-not-at-top
-    import torch
     from regress_lm.pytorch import model as pytorch_model
     from regress_lm.pytorch import encoders
-
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     architecture_kwargs = dict(
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=kwargs.get("num_encoder_layers", 2),
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
-        encoder_type=kwargs.get("encoder_type", encoders.EncoderType.VANILLA),
+        decoder_dropout=kwargs.get("decoder_dropout", 0.0),
+        encoder_type=encoders.EncoderType.VANILLA,
         additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
     )
 
@@ -84,50 +84,53 @@ class RegressLM:
         or vocabs.DecoderVocab(tokenizers.IEEEFloatTokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
+        z_loss_coef=kwargs.get("z_loss_coef", None),
         architecture_kwargs=architecture_kwargs,
     )
 
-    model = config.make_model(compile_model=kwargs.get("compile_model", True))
-    return cls(model.to(device))
+    return cls(model=config.make_model())
 
   @classmethod
   def from_t5gemma_encoder(
       cls,
       model_name: str = "google/t5gemma-s-s-prefixlm",
       freeze_encoder: bool = False,
-      device: str | None = None,
+      random_init: bool = False,
       **kwargs,
   ) -> "RegressLM":
-    """T5Gemma encoder w/ custom decoder."""
+    """T5Gemma (v1 or 2) encoder w/ custom decoder."""
+
     # pylint: disable=g-import-not-at-top
-    import torch
     from regress_lm.pytorch import model as pytorch_model
     from regress_lm.pytorch import encoders
-
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     architecture_kwargs = dict(
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=0,  # Dummy value, will be ignored.
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
-        encoder_type=kwargs.get("encoder_type", encoders.EncoderType.T5GEMMA),
+        decoder_dropout=kwargs.get("decoder_dropout", 0.0),
+        encoder_type=encoders.EncoderType.T5GEMMA,
         additional_encoder_kwargs={
             "model_name": model_name,
             "freeze_weights": freeze_encoder,
+            "random_init": random_init,
+            "dropout": kwargs.get("dropout", 0.0),
+            "use_grad_ckpt": kwargs.get("use_grad_ckpt", False),
         },
     )
 
     config = pytorch_model.PyTorchModelConfig(
-        encoder_vocab=vocabs.HuggingFaceVocab(model_name),
+        encoder_vocab=kwargs.get("encoder_vocab")
+        or vocabs.HuggingFaceVocab(model_name),
         decoder_vocab=kwargs.get("decoder_vocab")
         or vocabs.DecoderVocab(tokenizers.IEEEFloatTokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
+        z_loss_coef=kwargs.get("z_loss_coef", None),
         architecture_kwargs=architecture_kwargs,
     )
 
-    model = config.make_model(compile_model=kwargs.get("compile_model", True))
-    return cls(model.to(device))
+    return cls(model=config.make_model())
 
   def sample(
       self, xs: Sequence[core.ExampleInput], num_samples: int

@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterator
 import numpy as np
 from regress_lm import core
 from regress_lm.pytorch import model as pytorch_model
+from regress_lm.pytorch import optimizers
 import torch
 from torch import nn
 from torch import optim
@@ -83,7 +84,9 @@ class Trainer:
   def __init__(
       self,
       model: PyTorchModel,
-      optimizer_factory: Callable[[Parameters], optim.Optimizer],
+      optimizer_factory: Callable[
+          [optimizers.NamedParameters], optim.Optimizer
+      ],
       scheduler_factory: Callable[[optim.Optimizer], lr_scheduler.LRScheduler],
       train_ds: utils.data.Dataset[core.Example],
       validation_ds: utils.data.Dataset[core.Example],
@@ -92,17 +95,32 @@ class Trainer:
       grad_acc_steps: int = 1,
       use_ddp: bool = False,
       num_data_workers: int = 0,
+      compile_model: bool = True,
   ):
-    self._model = model  # NOTE: Only used as a template if distributed.
+    # NOTE: `model` only used as a template if distributed.
+    self._model = model
     self._training_wrapper = _TrainingModelWrapper(self._model)
+
+    current_device = 'cpu'
+    if torch.cuda.is_available():
+      current_device = torch.cuda.current_device()
+      self._training_wrapper.to(f'cuda:{current_device}')
+
     self._grad_acc_steps = grad_acc_steps
     self._use_ddp = use_ddp
+
     if self._use_ddp:
       self._training_wrapper = nn.parallel.DistributedDataParallel(
-          self._training_wrapper
+          self._training_wrapper,
+          device_ids=[current_device],
+          output_device=current_device,
       )
+    if compile_model:
+      self._training_wrapper = torch.compile(self._training_wrapper)
 
-    self._optimizer = optimizer_factory(self._training_wrapper.parameters())
+    self._optimizer = optimizer_factory(
+        self._training_wrapper.named_parameters()
+    )
     self._scheduler = scheduler_factory(self._optimizer)
     self._global_step = 0
 
@@ -118,6 +136,7 @@ class Trainer:
         num_workers=num_data_workers,
         collate_fn=self._model.converter.convert_examples,
         drop_last=True,  # Recommended to avoid model re-compilations.
+        pin_memory=True,
     )
 
     self._val_dl = utils.data.DataLoader(
@@ -128,6 +147,7 @@ class Trainer:
         num_workers=num_data_workers,
         collate_fn=self._model.converter.convert_examples,
         drop_last=True,  # Recommended to avoid model re-compilations.
+        pin_memory=True,
     )
 
   def run_validation_epoch(self) -> dict[str, float]:
@@ -140,7 +160,12 @@ class Trainer:
     )
     total_items = torch.tensor(0)
 
-    with torch.no_grad():
+    if self._use_ddp:  # Don't sync forward pass at validation.
+      no_sync_ctx = self._training_wrapper.no_sync()
+    else:
+      no_sync_ctx = contextlib.nullcontext()
+
+    with torch.no_grad(), no_sync_ctx:
       for val_batch in self._val_dl:
         _, metrics = self._training_wrapper.forward(val_batch)
         bsz = next(iter(val_batch.values())).size(0)
@@ -167,8 +192,10 @@ class Trainer:
         val_metrics[f'validation_{key}'] = (value / total_items).item()
     return val_metrics
 
-  def run_train_step(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
-    """Runs train step and returns metrics."""
+  def run_train_step(
+      self, batch: dict[str, torch.Tensor], return_metrics: bool = True
+  ) -> dict[str, float]:
+    """Runs train step and optionally returns metrics."""
     self._training_wrapper.train()
     self._global_step += 1
 
@@ -189,6 +216,9 @@ class Trainer:
       self._scheduler.step()
       self._optimizer.zero_grad(set_to_none=True)
 
+    if not return_metrics:
+      return {}  # Don't return metrics. Avoids GPU/CPU sync.
+
     if self._use_ddp:
       for k in metrics:
         metrics[k] = metrics[k].to(self._model.device, dtype=torch.float32)
@@ -197,6 +227,7 @@ class Trainer:
 
     train_metrics = {f'train_{k}': v.item() for k, v in metrics.items()}
     train_metrics['train_perplexity'] = np.exp(train_metrics['train_loss_mean'])
+    train_metrics['learning_rate'] = self._optimizer.param_groups[0]['lr']
     return train_metrics
 
   def save_checkpoint(
@@ -244,12 +275,13 @@ class Trainer:
 
   @property
   def model(self) -> PyTorchModel:
-    """Returns the original model, accounting for distributed wrapping."""
-    if isinstance(self._training_wrapper, nn.parallel.DistributedDataParallel):
-      # We must return it from wrapper's module, which contains true weights.
-      return self._training_wrapper.module.model  # pytype:disable=attribute-error
-    else:
-      return self._model
+    """Returns original model, accounting for compile and DDP."""
+    module = self._training_wrapper
+    if hasattr(module, '_orig_mod'):
+      module = module._orig_mod  # pylint: disable=protected-access
+    if isinstance(module, nn.parallel.DistributedDataParallel):
+      return module.module.model
+    return self._model
 
   @property
   def training_wrapper(self) -> nn.Module:

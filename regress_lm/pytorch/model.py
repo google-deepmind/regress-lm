@@ -31,6 +31,17 @@ NEG_INF = -1.0e7
 # Dict Keys: "encoder_input", "decoder_input", "decoder_target"
 Tensor = torch.Tensor
 
+ThreadPoolExecutor = futures.ThreadPoolExecutor
+
+
+class _SequentialExecutor(futures.Executor):
+
+  def map(
+      self, fn, *iterables, timeout: float | None = None, chunksize: int = 1
+  ):
+    del timeout, chunksize
+    return map(fn, *iterables)
+
 
 @dataclasses.dataclass(frozen=True)
 class PyTorchModelConfig:
@@ -47,6 +58,7 @@ class PyTorchModelConfig:
 
   # Other settings
   z_loss_coef: float | None = None
+  num_workers: int | None = None  # Set < 1 to disable threading. None is auto.
 
   @property
   def decode_len(self) -> int:
@@ -56,9 +68,15 @@ class PyTorchModelConfig:
     """Factory method to create a data converter from this config."""
     return PyTorchConverter(config=self)
 
-  def make_model(self, compile_model: bool = True) -> 'PyTorchModel':
+  def make_model(self) -> 'PyTorchModel':
     """Factory method to create a model from this config."""
-    return PyTorchModel(self, compile_model)
+    return PyTorchModel(self)
+
+  def make_threadpool(self) -> futures.Executor:
+    if self.num_workers is None or self.num_workers > 1:
+      return ThreadPoolExecutor(max_workers=self.num_workers)
+    else:
+      return _SequentialExecutor()
 
 
 class PyTorchConverter(core.Converter[Tensor]):
@@ -71,46 +89,60 @@ class PyTorchConverter(core.Converter[Tensor]):
       self, inputs: Sequence[core.ExampleInput]
   ) -> dict[str, Tensor]:
     strings = [example.x for example in inputs]
-    encoder_token_ids = [
-        self.cfg.encoder_vocab.to_token_ids(s) for s in strings
-    ]
-    encoder_input = [self._pad_or_truncate(t) for t in encoder_token_ids]
+
+    with self.cfg.make_threadpool() as executor:
+      encoder_token_ids = list(
+          executor.map(self.cfg.encoder_vocab.to_token_ids, strings)
+      )
+
+    batch_size, max_len = len(strings), self.cfg.max_input_len
+
+    # Pre-allocate padded arrays for efficiency + inject in-place.
+    encoder_input_np = np.full(
+        (batch_size, max_len), self.cfg.encoder_vocab.pad_id, dtype=np.int64
+    )
+    input_token_lens_np = np.zeros(batch_size, dtype=np.int64)
+    for i, tokens in enumerate(encoder_token_ids):
+      tok_len = len(tokens)
+      input_token_lens_np[i] = tok_len
+
+      # Truncate if necessary and insert
+      insert_len = min(tok_len, max_len)
+      encoder_input_np[i, :insert_len] = tokens[:insert_len]
+
     return {
-        'encoder_input': torch.tensor(encoder_input),
-        'input_token_lens': torch.tensor([len(t) for t in encoder_token_ids]),
+        'encoder_input': torch.from_numpy(encoder_input_np),
+        'input_token_lens': torch.from_numpy(input_token_lens_np),
     }
 
   def convert_examples(
       self, examples: Sequence[core.Example]
   ) -> dict[str, Tensor]:
     y_values = [example.y for example in examples]
-    y_tokens_list = [self.cfg.decoder_vocab.to_token_ids(y) for y in y_values]
 
-    decoder_inputs = []
-    decoder_targets = []
+    with self.cfg.make_threadpool() as executor:
+      y_tokens_list = list(
+          executor.map(self.cfg.decoder_vocab.to_token_ids, y_values)
+      )
+
+    batch_size, dec_len = len(y_values), self.cfg.decode_len
     pad_id = self.cfg.decoder_vocab.bos_pad_id
 
-    for t in y_tokens_list:
-      t = t[: self.cfg.decode_len]  # Truncate if too many objectives.
-      padding_needed = self.cfg.decode_len - len(t)
-      # Input: [pad, t_1, ..., t_n, pad, ..., pad]
-      decoder_inputs.append([pad_id] + t + [pad_id] * padding_needed)
-      # Target: [t_1, ..., t_n, pad, ..., pad]
-      decoder_targets.append(t + [pad_id] * (padding_needed + 1))
+    # Pre-allocate padded arrays for efficiency + inject in-place.
+    dec_input = np.full((batch_size, dec_len + 1), pad_id, dtype=np.int64)
+    dec_target = np.full((batch_size, dec_len + 1), pad_id, dtype=np.int64)
+    for i, tokens in enumerate(y_tokens_list):
+      insert_len = min(len(tokens), dec_len)
+      # Input: [pad, t_1, ..., t_n, pad, ...]
+      dec_input[i, 1 : insert_len + 1] = tokens[:insert_len]
+      # Target: [t_1, ..., t_n, pad, ...]
+      dec_target[i, :insert_len] = tokens[:insert_len]
 
     decoder_out = {
-        'decoder_input': torch.tensor(decoder_inputs),
-        'decoder_target': torch.tensor(decoder_targets),
+        'decoder_input': torch.from_numpy(dec_input),
+        'decoder_target': torch.from_numpy(dec_target),
     }
     return self.convert_inputs(examples) | decoder_out
-
-  def _pad_or_truncate(self, token_ids: list[int]) -> list[int]:
-    encoder_pad_idx = self.cfg.encoder_vocab.pad_id
-    if len(token_ids) > self.cfg.max_input_len:
-      return token_ids[: self.cfg.max_input_len]
-    return token_ids + [encoder_pad_idx] * (
-        self.cfg.max_input_len - len(token_ids)
-    )
 
 
 class PyTorchModel(nn.Module, core.Model[Tensor]):
@@ -120,7 +152,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
   with batchnorm and dropout.
   """
 
-  def __init__(self, config: PyTorchModelConfig, compile_model: bool):
+  def __init__(self, config: PyTorchModelConfig):
     super().__init__()
     self.cfg = config
 
@@ -133,9 +165,6 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         **self.cfg.architecture_kwargs,
     )
 
-    if compile_model:
-      self.encoder_decoder = torch.compile(self.encoder_decoder)
-
   @property
   def device(self) -> torch.device:
     return next(self.parameters()).device
@@ -144,8 +173,8 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       self, batch: dict[str, Tensor] | Tensor
   ) -> dict[str, Tensor] | Tensor:
     if isinstance(batch, dict):
-      return {k: v.to(self.device) for k, v in batch.items()}
-    return batch.to(self.device)
+      return {k: v.to(self.device, non_blocking=True) for k, v in batch.items()}
+    return batch.to(self.device, non_blocking=True)
 
   def compute_losses_and_metrics(
       self, examples: dict[str, Tensor]
@@ -222,29 +251,43 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         dtype=torch.long,
         device=self.device,
     )
+    with self.cfg.make_threadpool() as executor:
+      for step_idx in range(self.cfg.decode_len):
+        ids_step = generated_sequences_ids[:, :step_idx].to('cpu')
 
-    for step_idx in range(self.cfg.decode_len):
-      # Vectorized mask generation
-      curr_mask = self.cfg.decoder_vocab.get_allowed_tokens_mask(
-          generated_sequences_ids[:, :step_idx], self.device
-      ).float()
+        def get_allowed_tokens(i: int) -> list[int]:
+          prev_tokens = ids_step[i].tolist()  # pylint: disable=cell-var-from-loop
+          return self.cfg.decoder_vocab.possible_next_token_ids(prev_tokens)
 
-      # Get logits for the next token for all (B * num_samples) sequences
-      # Shape: (B*S, V)
-      logits = self.encoder_decoder.next_token_logits(
-          current_tgt_ids, expanded_memory, expanded_memory_key_padding_mask
-      )
-      masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
+        results = executor.map(get_allowed_tokens, range(expanded_batch_size))
 
-      # Apply temperature sampling, 1 token for each of the B*S sequences
-      probs = F.softmax(masked_logits / temperature, dim=-1)
-      token_ids = torch.multinomial(probs, num_samples=1)  # (B*S, 1)
-      # Store the predicted token IDs
-      generated_sequences_ids[:, step_idx] = token_ids.squeeze(-1)
+        curr_mask = torch.zeros(
+            (expanded_batch_size, len(self.cfg.decoder_vocab)),
+            dtype=torch.float32,
+            device='cpu',
+        )
+        for i, allowed_inds in enumerate(results):
+          if allowed_inds:
+            curr_mask[i, allowed_inds] = 1.0
 
-      # Prepare input for the next step, but only if not the last float token
-      if step_idx < self.cfg.decode_len - 1:
-        current_tgt_ids = torch.cat([current_tgt_ids, token_ids], dim=1)
+        curr_mask = curr_mask.to(self.device)
+
+        # Get logits for the next token for all (B * num_samples) sequences
+        # Shape: (B*S, V)
+        logits = self.encoder_decoder.next_token_logits(
+            current_tgt_ids, expanded_memory, expanded_memory_key_padding_mask
+        )
+        masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
+
+        # Apply temperature sampling, 1 token for each of the B*S sequences
+        probs = F.softmax(masked_logits / temperature, dim=-1)
+        token_ids = torch.multinomial(probs, num_samples=1)  # (B*S, 1)
+        # Store the predicted token IDs
+        generated_sequences_ids[:, step_idx] = token_ids.squeeze(-1)
+
+        # Prepare input for the next step, but only if not the last float token
+        if step_idx < self.cfg.decode_len - 1:
+          current_tgt_ids = torch.cat([current_tgt_ids, token_ids], dim=1)
 
     # Reshape outputs back to (B, num_samples, L_decode)
     final_decoded_ids = generated_sequences_ids.view(

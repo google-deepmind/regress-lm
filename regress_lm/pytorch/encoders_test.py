@@ -14,6 +14,7 @@
 
 import math
 
+from regress_lm import vocabs
 from regress_lm.pytorch import encoders
 import torch
 from torch.nn import functional as F
@@ -227,7 +228,8 @@ class FavorAttentionTest(parameterized.TestCase):
 class T5GemmaEncoderTest(parameterized.TestCase):
   """Tests for the T5GemmaEncoder wrapper."""
 
-  def test_forward_shape_and_no_nans(self):
+  @parameterized.parameters(0, 10, -10)
+  def test_forward_shape_and_no_nans(self, vocab_size_diff: int):
     """Tests that the T5Gemma encoder output has the correct shape."""
     batch_size = 2
     seq_len = 20
@@ -240,7 +242,12 @@ class T5GemmaEncoderTest(parameterized.TestCase):
     src_key_padding_mask[0, 15:] = True
     src_key_padding_mask[1, 18:] = True
 
-    encoder = encoders.T5GemmaEncoder(model_name="google/t5gemma-s-s-prefixlm")
+    model_name = "google/t5gemma-s-s-prefixlm"
+    vocab = vocabs.HuggingFaceVocab(model_name)
+    encoder = encoders.T5GemmaEncoder(
+        vocab_size=len(vocab) + vocab_size_diff, model_name=model_name
+    )
+    self.assertEqual(encoder.hidden_dim, d_model)
 
     # --- 1. Test with padding mask ---
     output = encoder(src_ids, src_key_padding_mask)
@@ -248,6 +255,38 @@ class T5GemmaEncoderTest(parameterized.TestCase):
     self.assertFalse(torch.isnan(output).any())
 
     # --- 2. Test without padding mask ---
+    output = encoder(src_ids, src_key_padding_mask=None)
+    self.assertEqual(output.shape, (batch_size, seq_len, d_model))
+    self.assertFalse(torch.isnan(output).any())
+
+
+class T5Gemma2EncoderTest(parameterized.TestCase):
+  """Tests for the T5Gemma2 variant."""
+
+  @parameterized.parameters(0, 10, -10)
+  def test_forward_shape_and_no_nans(self, vocab_size_diff: int):
+    """Tests that the T5Gemma2 encoder output has the correct shape."""
+    batch_size = 2
+    seq_len = 20
+    d_model = 640
+
+    src_ids = torch.randint(0, 1000, (batch_size, seq_len), dtype=torch.long)
+
+    src_key_padding_mask = torch.zeros(batch_size, seq_len, dtype=torch.bool)
+    src_key_padding_mask[0, 15:] = True
+    src_key_padding_mask[1, 18:] = True
+
+    model_name = "google/t5gemma-2-270m-270m"
+    vocab = vocabs.HuggingFaceVocab(model_name)
+    encoder = encoders.T5GemmaEncoder(
+        vocab_size=len(vocab) + vocab_size_diff, model_name=model_name
+    )
+    self.assertEqual(encoder.hidden_dim, d_model)
+
+    output = encoder(src_ids, src_key_padding_mask)
+    self.assertEqual(output.shape, (batch_size, seq_len, d_model))
+    self.assertFalse(torch.isnan(output).any())
+
     output = encoder(src_ids, src_key_padding_mask=None)
     self.assertEqual(output.shape, (batch_size, seq_len, d_model))
     self.assertFalse(torch.isnan(output).any())

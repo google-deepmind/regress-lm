@@ -62,6 +62,7 @@ class EncoderDecoder(nn.Module):
       d_model: int,
       num_encoder_layers: int,
       num_decoder_layers: int,
+      decoder_dropout: float = 0.0,
       # encoder args
       encoder_type: encoders.EncoderType = encoders.EncoderType.VANILLA,
       additional_encoder_kwargs: dict[str, Any] | None = None,
@@ -79,13 +80,15 @@ class EncoderDecoder(nn.Module):
     # We use the hidden_dim of the encoder for the decoder.
     self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, self.encoder.hidden_dim)
     self.decoder_positional_encoding = _PositionalEncoding(
-        self.encoder.hidden_dim, max_len=max_decoder_len, dropout=0.0
+        self.encoder.hidden_dim,
+        max_len=max_decoder_len,
+        dropout=decoder_dropout,
     )
     decoder_layer = nn.TransformerDecoderLayer(
         self.encoder.hidden_dim,
         nhead=8,
         dim_feedforward=4 * self.encoder.hidden_dim,
-        dropout=0.0,
+        dropout=decoder_dropout,
         batch_first=True,
         norm_first=True,
     )
@@ -94,9 +97,6 @@ class EncoderDecoder(nn.Module):
     )
     self.generator = nn.Linear(self.encoder.hidden_dim, decoder_vocab_size)
 
-  def _generate_causal_mask(self, sz: int) -> torch.Tensor:
-    return torch.triu(torch.full((sz, sz), float("-inf")), diagonal=1)
-
   def forward(self, src: torch.Tensor, tgt_input: torch.Tensor) -> torch.Tensor:
     src_padding_mask = src == self.encoder_pad_idx
 
@@ -104,8 +104,9 @@ class EncoderDecoder(nn.Module):
       memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
       decoder_output = self.decoder(
           tgt=self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input)),
-          memory=memory,
-          tgt_mask=self._generate_causal_mask(tgt_input.size(1)).to(src.device),
+          memory=memory.to(dtype=self.tgt_tok_emb.weight.dtype),
+          tgt_mask=self._get_tgt_mask(tgt_input),
+          tgt_is_causal=True,
           memory_key_padding_mask=src_padding_mask,
       )
     return self.generator(decoder_output)
@@ -124,16 +125,21 @@ class EncoderDecoder(nn.Module):
       memory_key_padding_mask: torch.Tensor,
   ) -> torch.Tensor:
     """Decodes one step using the standard decoder."""
-    tgt_causal_mask = self._generate_causal_mask(current_tgt_seq.size(1)).to(
-        current_tgt_seq.device
-    )
     tgt = self.decoder_positional_encoding(self.tgt_tok_emb(current_tgt_seq))
 
     with nn.attention.sdpa_kernel(SPD_BACKENDS):
       decoder_output_all_steps = self.decoder(
           tgt=tgt,
-          memory=memory,
-          tgt_mask=tgt_causal_mask,
+          memory=memory.to(dtype=self.tgt_tok_emb.weight.dtype),
+          tgt_mask=self._get_tgt_mask(current_tgt_seq),
+          tgt_is_causal=True,
           memory_key_padding_mask=memory_key_padding_mask,
       )
     return self.generator(decoder_output_all_steps[:, -1, :])
+
+  def _get_tgt_mask(self, tgt: torch.Tensor) -> torch.Tensor | None:
+    """Returns explicit target mask if needed (e.g. on CPUs and tests)."""
+    # TorchInductor will ignore this after compilation, allowing speedups.
+    return nn.Transformer.generate_square_subsequent_mask(
+        tgt.size(1), device=tgt.device, dtype=torch.bool
+    )
