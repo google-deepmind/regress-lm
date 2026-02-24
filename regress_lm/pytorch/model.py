@@ -300,11 +300,20 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     output_floats = np.empty(
         (batch_size, num_samples, self.cfg.max_num_objs), dtype=object
     )
-    for b in range(batch_size):
-      for s_idx in range(num_samples):
-        output_floats[b, s_idx, :] = self.cfg.decoder_vocab.from_token_ids(
-            final_decoded_ids[b, s_idx, :].tolist()
-        )
+
+    def _decode_sample(idx: int) -> list:  # pylint:disable=g-bare-generic
+      b, s = divmod(idx, num_samples)
+      return self.cfg.decoder_vocab.from_token_ids(
+          final_decoded_ids[b, s, :].tolist()
+      )
+
+    with self.cfg.make_threadpool() as executor:
+      results = list(
+          executor.map(_decode_sample, range(batch_size * num_samples))
+      )
+    for idx, floats in enumerate(results):
+      b, s = divmod(idx, num_samples)
+      output_floats[b, s, :] = floats
 
     return final_decoded_ids, output_floats
 
