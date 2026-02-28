@@ -133,9 +133,14 @@ class RegressLM:
     return cls(model=config.make_model())
 
   def sample(
-      self, xs: Sequence[core.ExampleInput], num_samples: int
+      self,
+      xs: Sequence[core.ExampleInput],
+      num_samples: int,
+      temperature: float = 1.0,
   ) -> Sequence[np.ndarray]:
     """Samples from the model."""
     examples = self.model.converter.convert_inputs(xs)
-    _, output_floats = self.model.decode(examples, num_samples)
+    _, output_floats = self.model.decode(
+        examples, num_samples, temperature=temperature
+    )
     return [y.squeeze(axis=0) for y in np.split(output_floats, len(xs), axis=0)]
