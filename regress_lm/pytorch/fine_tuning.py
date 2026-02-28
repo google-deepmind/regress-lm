@@ -167,7 +167,7 @@ class PyTorchFineTuner(core.FineTuner):
         batch_size=micro_batch_size,
         shuffle=True,
         generator=g,
-        drop_last=True,
+        drop_last=False,
     )
     train_iter = _cycle_loader(train_dl)
 
