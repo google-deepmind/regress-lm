@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterator
 import numpy as np
 from regress_lm import core
 from regress_lm.pytorch import model as pytorch_model
+from regress_lm.pytorch import optimizers
 import torch
 from torch import nn
 from torch import optim
@@ -77,16 +78,15 @@ def cycle_dataloader(dataloader: utils.data.DataLoader[core.Example]):
     epoch += 1
 
 
-NamedParameter = tuple[str, nn.Parameter]
-
-
 class Trainer:
   """RegressLM large-scale training process, including distributed cases."""
 
   def __init__(
       self,
       model: PyTorchModel,
-      optimizer_factory: Callable[[Iterator[NamedParameter]], optim.Optimizer],
+      optimizer_factory: Callable[
+          [optimizers.NamedParameters], optim.Optimizer
+      ],
       scheduler_factory: Callable[[optim.Optimizer], lr_scheduler.LRScheduler],
       train_ds: utils.data.Dataset[core.Example],
       validation_ds: utils.data.Dataset[core.Example],

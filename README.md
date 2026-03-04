@@ -113,14 +113,14 @@ samples = reg_lm.sample([core.ExampleInput(x='hi')], num_samples=128)[0]
 ```
 
 ### Pretrained Third-Party Models
-[T5Gemma](https://developers.googleblog.com/en/t5gemma/) encoder + our
-default decoder is supported:
+T5Gemma ([V1](https://developers.googleblog.com/en/t5gemma/) + [V2](https://blog.google/innovation-and-ai/technology/developers-tools/t5gemma-2/)) encoder + our
+custom decoder is supported:
 
 ```python
 config = PyTorchModelConfig(architecture_kwargs=dict(encoder_type=EncoderType.T5GEMMA))
 ```
 
-End-to-end T5Gemma is also supported:
+End-to-end T5Gemma (encoder + decoder) is also supported as a baseline:
 
 ```python
 from regress_lm.pytorch import t5gemma_model

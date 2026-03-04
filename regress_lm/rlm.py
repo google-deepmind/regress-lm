@@ -38,14 +38,14 @@ class RegressLM:
     """Fine-tunes the model against the provided examples."""
 
     # pylint: disable=g-import-not-at-top
-    from torch import optim
     from regress_lm.pytorch import fine_tuning as pytorch_fine_tuning
+    from regress_lm.pytorch import optimizers
 
     # NOTE: This adds extra GPU memory usage, so we don't add into init.
     fine_tuner = pytorch_fine_tuning.PyTorchFineTuner(
         self.model,
         optimizer_factory=kwargs.get("optimizer_factory", None)
-        or functools.partial(optim.Adafactor, lr=1e-4),
+        or functools.partial(optimizers.muon_adamw, lr=1e-4),
         max_epochs=kwargs.get("max_epochs", 100),
         batch_size=kwargs.get("batch_size", None),
         batch_size_per_device=kwargs.get("batch_size_per_device", None),
@@ -112,8 +112,9 @@ class RegressLM:
         encoder_type=encoders.EncoderType.T5GEMMA,
         additional_encoder_kwargs={
             "model_name": model_name,
-            "freeze_weights": freeze_encoder,
             "random_init": random_init,
+            "freeze_weights": freeze_encoder,
+            "all_global_attn": kwargs.get("all_global_attn", False),
             "dropout": kwargs.get("dropout", 0.0),
             "use_grad_ckpt": kwargs.get("use_grad_ckpt", False),
         },

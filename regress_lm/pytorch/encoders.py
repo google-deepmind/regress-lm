@@ -574,6 +574,7 @@ class T5GemmaEncoder(BaseEncoder):
       random_init: bool = False,
       freeze_weights: bool = False,
       attn_implementation: str = "sdpa",  # Flash causes issues ATM.
+      all_global_attn: bool = False,  # Turn on for short sequences.
       dropout: float = 0.0,
       use_grad_ckpt: bool = False,
       multimodal: bool = False,
@@ -593,10 +594,17 @@ class T5GemmaEncoder(BaseEncoder):
           transformers.T5GemmaForConditionalGeneration
       )
 
-    if not random_init:  # Pretrained model.
-      config = AutoConfig.from_pretrained(model_name)
-      config.dropout_rate = dropout
-      config.attention_dropout = dropout
+    config = AutoConfig.from_pretrained(model_name)
+    config.dropout_rate = dropout
+    config.attention_dropout = dropout
+    if all_global_attn:
+      enc_cfg = config.encoder
+      enc_cfg = (
+          enc_cfg.text_config if hasattr(enc_cfg, "text_config") else enc_cfg
+      )
+      enc_cfg.layer_types = ["full_attention"] * enc_cfg.num_hidden_layers
+
+    if not random_init:
       model = T5GemmaForConditionalGeneration.from_pretrained(
           model_name,
           config=config,
@@ -611,10 +619,7 @@ class T5GemmaEncoder(BaseEncoder):
         )
         model.resize_token_embeddings(vocab_size)
     else:  # Random initialization.
-      config = AutoConfig.from_pretrained(model_name)
       config.vocab_size = vocab_size
-      config.dropout_rate = dropout
-      config.attention_dropout = dropout
       model = T5GemmaForConditionalGeneration(config)
 
     self.encoder = model.get_encoder()
