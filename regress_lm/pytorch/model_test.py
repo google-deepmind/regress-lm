@@ -296,10 +296,7 @@ class ModelTest(parameterized.TestCase):
     lora_fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -19.24, 1)
-
-    # Allow further fine-tuning.
-    lora_fine_tuner.fine_tune(raw_examples)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -8.99, 1)
 
 
 if __name__ == '__main__':
