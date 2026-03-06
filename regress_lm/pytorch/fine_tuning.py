@@ -47,8 +47,9 @@ class _EarlyStoppingTracker:
     if current_loss < self.best_loss:
       # We have a new best loss, so we save the weights and reset the counter.
       self.best_loss = current_loss
+      # NOTE: Keep cloned tensors on GPU to avoid CPU transfer slowdowns.
       self.best_state = {
-          k: v.to("cpu").clone().detach() for k, v in model.state_dict().items()
+          k: v.clone().detach() for k, v in model.state_dict().items()
       }
       self.epochs_without_improvement = 0
     else:
