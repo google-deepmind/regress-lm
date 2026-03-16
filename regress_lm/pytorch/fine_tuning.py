@@ -47,8 +47,9 @@ class _EarlyStoppingTracker:
     if current_loss < self.best_loss:
       # We have a new best loss, so we save the weights and reset the counter.
       self.best_loss = current_loss
+      # NOTE: Keep cloned tensors on GPU to avoid CPU transfer slowdowns.
       self.best_state = {
-          k: v.to("cpu").clone().detach() for k, v in model.state_dict().items()
+          k: v.clone().detach() for k, v in model.state_dict().items()
       }
       self.epochs_without_improvement = 0
     else:
@@ -70,8 +71,8 @@ def _cycle_loader(dataloader: utils.data.DataLoader):
 
 NamedParameters = optimizers_lib.NamedParameters
 
-# TODO: Does this match all param names in our model?
-DEFAULT_LORA_TARGET_MODULES = ("q_proj", "v_proj", "k_proj", "out_proj")
+# Safe default from PEFT documentation.
+DEFAULT_LORA_TARGET_MODULES = "all-linear"
 
 
 class PyTorchFineTuner(core.FineTuner):
@@ -91,7 +92,7 @@ class PyTorchFineTuner(core.FineTuner):
       lora_r: int = 8,
       lora_alpha: int = 16,
       lora_dropout: float = 0.0,
-      target_modules: Sequence[str] = DEFAULT_LORA_TARGET_MODULES,
+      target_modules: Sequence[str] | str = DEFAULT_LORA_TARGET_MODULES,
   ):
     """Initializes the fine-tuner.
 
@@ -124,7 +125,9 @@ class PyTorchFineTuner(core.FineTuner):
           r=lora_r,
           lora_alpha=lora_alpha,
           lora_dropout=lora_dropout,
-          target_modules=target_modules,
+          target_modules=list(target_modules)
+          if not isinstance(target_modules, str)
+          else target_modules,
           bias="none",
       )
       self.lora_wrapper = peft.get_peft_model(model, self.lora_config)
@@ -196,15 +199,7 @@ class PyTorchFineTuner(core.FineTuner):
       self.target_model.load_state_dict(tracker.best_state)
 
     if self.lora_wrapper:
-      # Pushes LoRA weights into self.model and allow further fine-tuning.
-      state = self.optimizer.state_dict()
       self.lora_wrapper.merge_and_unload()
-      self.lora_wrapper = peft.get_peft_model(self.model, self.lora_config)
-      self.optimizer = self.optimizer_factory(
-          self.lora_wrapper.named_parameters()
-      )
-      # Might not work, different param keys.
-      self.optimizer.load_state_dict(state)
 
   def _run_training_epoch(
       self,

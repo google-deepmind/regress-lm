@@ -583,7 +583,7 @@ class T5GemmaEncoder(BaseEncoder):
     super().__init__()
     # pylint:disable=invalid-name
 
-    if "t5gemma-2" in model_name:
+    if "t5gemma-2-" in model_name:
       AutoConfig = transformers_v5.AutoConfig
       T5GemmaForConditionalGeneration = (
           transformers_v5.T5Gemma2ForConditionalGeneration
