@@ -88,7 +88,7 @@ class PyTorchFineTuner(core.FineTuner):
       batch_size_per_device: int | None = None,
       patience: int | None = 1,
       # LoRA-specific args.
-      use_lora: bool = False,
+      use_lora: bool = True,
       lora_r: int = 8,
       lora_alpha: int = 16,
       lora_dropout: float = 0.0,
