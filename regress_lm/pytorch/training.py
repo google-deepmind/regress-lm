@@ -235,6 +235,7 @@ class Trainer:
       checkpoint_path: str,
       # In case more resilient checkpointing is needed with custom saving.
       save_fn: Callable[[dict[str, Any], str], None] = torch.save,
+      extra_state: dict[str, Any] | None = None,
   ) -> None:
     """Saves the current training state to a checkpoint file."""
     state = {
@@ -243,15 +244,17 @@ class Trainer:
         'scheduler_state': self._scheduler.state_dict(),
         'global_step': self._global_step,
     }
+    state.update(extra_state or {})
     save_fn(state, checkpoint_path)
 
-  def load_checkpoint(self, checkpoint_path: str) -> None:
-    """Loads the training state from a checkpoint file."""
+  def load_checkpoint(self, checkpoint_path: str) -> dict[str, Any]:
+    """Loads and returns the training state from a checkpoint file."""
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     self.model.load_state_dict(checkpoint['model_state'])
     self._optimizer.load_state_dict(checkpoint['optimizer_state'])
     self._scheduler.load_state_dict(checkpoint['scheduler_state'])
     self._global_step = checkpoint['global_step']
+    return checkpoint
 
   @property
   def step(self) -> float:
