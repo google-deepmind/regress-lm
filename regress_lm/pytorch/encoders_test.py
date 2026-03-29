@@ -23,6 +23,66 @@ from absl.testing import absltest
 from absl.testing import parameterized
 
 
+class VanillaEncoderTest(parameterized.TestCase):
+  """Tests for VanillaEncoder correctness."""
+
+  def test_padding_invariance(self):
+    """Output for real tokens must be identical with or without padding."""
+    vocab_size, d_model, pad_id = 50, 16, 0
+
+    torch.manual_seed(7)
+    seq1_ids = torch.randint(1, vocab_size, (1, 5))
+    seq2_ids = torch.randint(1, vocab_size, (1, 8))
+
+    encoder = encoders.VanillaEncoder(
+        vocab_size=vocab_size, d_model=d_model, num_layers=2, max_len=16
+    )
+
+    # Ground truth: run each sequence alone, no padding.
+    with torch.no_grad():
+      out1_unpadded = encoder(seq1_ids, src_key_padding_mask=None)
+      out2_unpadded = encoder(seq2_ids, src_key_padding_mask=None)
+
+    # Now batch them together with padding.
+    max_len = 10
+    padded = torch.full((2, max_len), pad_id, dtype=torch.long)
+    padded[0, :5] = seq1_ids
+    padded[1, :8] = seq2_ids
+
+    # key_padding_mask: True = padding position.
+    mask = torch.zeros(2, max_len, dtype=torch.bool)
+    mask[0, 5:] = True
+    mask[1, 8:] = True
+
+    with torch.no_grad():
+      out_padded = encoder(padded, src_key_padding_mask=mask)
+
+    self.assertTrue(
+        torch.allclose(out_padded[0, :5, :], out1_unpadded[0], atol=1e-5),
+        "VanillaEncoder: real-token output changed when padding was added.",
+    )
+    self.assertTrue(
+        torch.allclose(out_padded[1, :8, :], out2_unpadded[0], atol=1e-5),
+        "VanillaEncoder: real-token output changed when padding was added.",
+    )
+
+  def test_layer_weight_diversity(self):
+    """Each encoder layer must have independently initialised weights."""
+    encoder = encoders.VanillaEncoder(
+        vocab_size=50, d_model=16, num_layers=4, max_len=32
+    )
+    layers = list(encoder.layers)
+    # Compare q_proj.weight across all pairs of layers.
+    for i in range(len(layers)):
+      for j in range(i + 1, len(layers)):
+        w_i = layers[i].q_proj.weight
+        w_j = layers[j].q_proj.weight
+        self.assertFalse(
+            torch.allclose(w_i, w_j),
+            f"Layers {i} and {j} have identical q_proj weights.",
+        )
+
+
 class PerformerEncoderTest(parameterized.TestCase):
 
   @parameterized.parameters(("softmax",), ("relu",))
