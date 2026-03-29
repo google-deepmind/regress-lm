@@ -15,7 +15,6 @@
 """Different encoder types."""
 
 import abc
-import copy
 import enum
 import functools
 import logging
@@ -174,8 +173,11 @@ class _VanillaTransformerEncoderLayer(nn.Module):
     cos, sin = rotary_pos_emb(q)
     q, k = _apply_rotary_pos_emb(q, k, cos, sin)
 
+    # key_padding_mask convention: True = padding (ignore), False = real token.
+    # F.scaled_dot_product_attention bool attn_mask convention: True = attend.
+    # Must negate so padding positions are masked out.
     final_attn_mask = (
-        key_padding_mask.view(B, 1, 1, L)
+        ~key_padding_mask.view(B, 1, 1, L)
         if key_padding_mask is not None
         else None
     )
@@ -230,12 +232,15 @@ class VanillaEncoder(BaseEncoder):
         d_model // nhead, max_len=max_len
     )
 
-    layer = _VanillaTransformerEncoderLayer(
-        d_model, expand * d_model, nhead, dropout
-    )
-    self.layers = nn.ModuleList(
-        [copy.deepcopy(layer) for _ in range(num_layers)]
-    )
+    # Instantiate each layer independently so weights are randomly initialized
+    # per-layer. deepcopy from a single prototype would give identical weights,
+    # which causes permanent layer symmetry collapse when using Muon optimizer.
+    self.layers = nn.ModuleList([
+        _VanillaTransformerEncoderLayer(
+            d_model, expand * d_model, nhead, dropout
+        )
+        for _ in range(num_layers)
+    ])
     self.num_layers = num_layers
     self.norm = nn.LayerNorm(d_model)
 
@@ -528,17 +533,20 @@ class PerformerEncoder(BaseEncoder):
     super().__init__()
     self.embedding = nn.Embedding(vocab_size, d_model)
     self.d_model = d_model
-    layer = _PerformerEncoderLayer(
-        d_model,
-        nhead,
-        dim_feedforward=4 * d_model,
-        kernel_name=kernel_name,
-        num_features=num_features,
-        dropout=dropout,
-    )
-    self.layers = nn.ModuleList(
-        [copy.deepcopy(layer) for _ in range(num_layers)]
-    )
+    # Instantiate each layer independently so weights are randomly initialized
+    # per-layer. deepcopy from a single prototype would give identical weights,
+    # which causes permanent layer symmetry collapse when using Muon optimizer.
+    self.layers = nn.ModuleList([
+        _PerformerEncoderLayer(
+            d_model,
+            nhead,
+            dim_feedforward=4 * d_model,
+            kernel_name=kernel_name,
+            num_features=num_features,
+            dropout=dropout,
+        )
+        for _ in range(num_layers)
+    ])
     self.redraw_interval = redraw_interval
     self.register_buffer("training_calls", torch.tensor(0))
     self.norm = nn.LayerNorm(d_model)

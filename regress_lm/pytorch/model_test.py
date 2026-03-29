@@ -82,13 +82,13 @@ class ModelTest(parameterized.TestCase):
     examples_tensors = self.model.converter.convert_examples(raw_examples)
     log_probs_before = self.model.log_prob(examples_tensors)
     self.assertEqual(log_probs_before.shape, (2,))
-    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -22.69, 1)
+    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -22.1, 1)
 
     # Update the model. Logprob should improve.
     self.fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -14.13, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -13.2, 1)
 
   def test_compute_losses_and_metrics(self):
     """Verifies the exact output of the loss calculation."""
@@ -106,11 +106,11 @@ class ModelTest(parameterized.TestCase):
 
     # Check the per-example loss (mean over tokens)
     self.assertEqual(losses_per_example.shape, (2,))
-    self.assertAlmostEqual(losses_per_example[0].item(), 3.7821, 3)
-    self.assertAlmostEqual(losses_per_example[1].item(), 4.0466, 3)
+    self.assertAlmostEqual(losses_per_example[0].item(), 3.6756, 3)
+    self.assertAlmostEqual(losses_per_example[1].item(), 3.9585, 3)
 
     # Check the overall batch loss metric
-    self.assertAlmostEqual(metrics['loss_mean'].item(), 3.9143, 3)
+    self.assertAlmostEqual(metrics['loss_mean'].item(), 3.8171, 3)
 
   def test_decode(self):
     raw_example = [core.Example(x='hello', y=2.123)]
@@ -123,9 +123,9 @@ class ModelTest(parameterized.TestCase):
     self.assertEqual(tuple(output_floats.shape), (1, 1024, 1))
 
     self.assertAlmostEqual(output_floats[0, 0, 0], 0.6898)
-    self.assertAlmostEqual(output_floats[0, 1, 0], -230800000.0)
+    self.assertAlmostEqual(output_floats[0, 1, 0], -2306000000.0)
 
-    self.assertAlmostEqual(np.median(output_floats), 0.00082365)
+    self.assertAlmostEqual(np.median(output_floats), 0.00087280)
 
     # After updating, the median should get closer to target y.
     self.fine_tuner.fine_tune(raw_example, seed=42)
@@ -152,7 +152,7 @@ class ModelTest(parameterized.TestCase):
     decoded_ids, _ = model.decode(batch, num_samples=5)
 
     np.testing.assert_array_equal(decoded_ids[0, 0], [37, 37, 37, 37, 37, 37])
-    np.testing.assert_array_equal(decoded_ids[0, 1], [2, 5, 9, 5, 9, 31])
+    np.testing.assert_array_equal(decoded_ids[0, 1], [2, 5, 12, 8, 8, 31])
 
   @parameterized.parameters(True, False)
   def test_multiobjective(self, add_separators: bool):
@@ -290,13 +290,13 @@ class ModelTest(parameterized.TestCase):
     examples_tensors = self.model.converter.convert_examples(raw_examples)
     log_probs_before = self.model.log_prob(examples_tensors)
     self.assertEqual(log_probs_before.shape, (2,))
-    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -22.69, 1)
+    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -22.1, 1)
 
     # Update the model. Logprob should improve.
     lora_fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -8.99, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -5.9, 1)
 
 
 if __name__ == '__main__':
