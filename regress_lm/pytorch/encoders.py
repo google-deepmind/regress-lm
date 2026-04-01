@@ -434,7 +434,11 @@ class _PerformerEncoderLayer(nn.Module):
       raise ValueError("d_model must be divisible by nhead")
 
     if num_features is None:
-      num_features = 2 * int(self.head_dim * math.log(self.head_dim))
+      # Use d_model (= nhead * head_dim) as the default number of random
+      # features. This is comfortably above the theoretical minimum of
+      # head_dim * log(head_dim) for all practical nhead values, and avoids
+      # the approximation quality degrading silently on larger models.
+      num_features = d_model
     self.num_features = num_features
 
     if kernel_name == "softmax":
@@ -485,7 +489,10 @@ class _PerformerEncoderLayer(nn.Module):
     return self.linear2(self.ff_dropout(self.activation(self.linear1(x))))
 
   def forward(
-      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self,
+      src: torch.Tensor,
+      rotary_pos_emb: _RotaryPositionalEmbedding,
+      src_key_padding_mask: torch.Tensor | None,
   ) -> torch.Tensor:
     x = src
     x_norm = self.norm1(x)
@@ -495,9 +502,18 @@ class _PerformerEncoderLayer(nn.Module):
     v = self.v_proj(x_norm)
 
     # Reshape for multi-head: (B, L, D) -> (B, L, H, D_h)
-    q = q.view(-1, x.shape[1], self.nhead, self.head_dim)
-    k = k.view(-1, x.shape[1], self.nhead, self.head_dim)
-    v = v.view(-1, x.shape[1], self.nhead, self.head_dim)
+    B, L, _ = x.shape  # pylint: disable=invalid-name
+    q = q.view(B, L, self.nhead, self.head_dim)
+    k = k.view(B, L, self.nhead, self.head_dim)
+    v = v.view(B, L, self.nhead, self.head_dim)
+
+    # Apply RoPE: transpose to (B, H, L, D_h), rotate, transpose back.
+    q_rope = q.transpose(1, 2)
+    k_rope = k.transpose(1, 2)
+    cos, sin = rotary_pos_emb(q_rope)
+    q_rope, k_rope = _apply_rotary_pos_emb(q_rope, k_rope, cos, sin)
+    q = q_rope.transpose(1, 2)  # back to (B, L, H, D_h)
+    k = k_rope.transpose(1, 2)
 
     # Create mask for favor_attention (True for real tokens)
     mask = ~src_key_padding_mask if src_key_padding_mask is not None else None
@@ -509,7 +525,7 @@ class _PerformerEncoderLayer(nn.Module):
         projection_matrix=self.projection_matrix,
         inputs_mask=mask,
     )
-    attn_output = attn_output.contiguous().view(-1, x.shape[1], self.d_model)
+    attn_output = attn_output.contiguous().view(B, L, self.d_model)
     attn_output = self.out_proj(attn_output)
 
     x = x + self.dropout1(attn_output)
@@ -524,6 +540,7 @@ class PerformerEncoder(BaseEncoder):
       vocab_size: int,
       d_model: int,
       num_layers: int,
+      max_len: int,
       kernel_name: Literal["softmax", "relu"] = "relu",
       num_features: int | None = None,
       redraw_interval: int | None = None,
@@ -533,6 +550,9 @@ class PerformerEncoder(BaseEncoder):
     super().__init__()
     self.embedding = nn.Embedding(vocab_size, d_model)
     self.d_model = d_model
+    self.rotary_pos_emb = _RotaryPositionalEmbedding(
+        d_model // nhead, max_len=max_len
+    )
     # Instantiate each layer independently so weights are randomly initialized
     # per-layer. deepcopy from a single prototype would give identical weights,
     # which causes permanent layer symmetry collapse when using Muon optimizer.
@@ -564,7 +584,7 @@ class PerformerEncoder(BaseEncoder):
 
     output = src
     for layer in self.layers:
-      output = layer(output, src_key_padding_mask)
+      output = layer(output, self.rotary_pos_emb, src_key_padding_mask)
     return self.norm(output)
 
   @property
@@ -704,6 +724,7 @@ class EncoderType(enum.Enum):
           vocab_size=vocab_size,
           d_model=d_model,
           num_layers=num_layers,
+          max_len=max_encoder_len,
           **encoder_kwargs,
       )
     elif self is EncoderType.T5GEMMA:

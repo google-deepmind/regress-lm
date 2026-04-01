@@ -101,6 +101,7 @@ class PerformerEncoderTest(parameterized.TestCase):
         vocab_size=vocab_size,
         d_model=d_model,
         num_layers=2,
+        max_len=seq_len,
         kernel_name=kernel_name,  # pytype: disable=wrong-arg-types
     )
     output = encoder(src_ids, src_key_padding_mask=None)
@@ -126,7 +127,10 @@ class PerformerEncoderTest(parameterized.TestCase):
     seq2_ids = torch.randint(1, vocab_size, (1, 8))
 
     encoder = encoders.PerformerEncoder(
-        vocab_size=vocab_size, d_model=d_model, num_layers=2
+        vocab_size=vocab_size,
+        d_model=d_model,
+        num_layers=2,
+        max_len=max_seq_len,
     )
 
     # --- Run without padding (the ground truth) ---
