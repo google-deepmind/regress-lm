@@ -89,9 +89,7 @@ class Trainer:
       ],
       scheduler_factory: Callable[[optim.Optimizer], lr_scheduler.LRScheduler],
       train_ds: utils.data.Dataset[core.Example],
-      validation_ds: utils.data.Dataset[core.Example],
       batch_size: int,
-      validation_batch_size: int | None = None,
       grad_acc_steps: int = 1,
       use_ddp: bool = False,
       num_data_workers: int = 0,
@@ -139,19 +137,21 @@ class Trainer:
         pin_memory=True,
     )
 
-    self._val_dl = utils.data.DataLoader(
-        dataset=validation_ds,
-        batch_size=validation_batch_size or batch_size,
-        shuffle=False,
-        sampler=get_sampler(validation_ds, self._use_ddp),
-        num_workers=num_data_workers,
-        collate_fn=self._model.converter.convert_examples,
-        drop_last=True,  # Recommended to avoid model re-compilations.
-        pin_memory=True,
-    )
+  def run_eval_epoch(
+      self, dl: utils.data.DataLoader[core.Example]
+  ) -> dict[str, float]:
+    """Evaluates the model on an arbitrary finite DataLoader.
 
-  def run_validation_epoch(self) -> dict[str, float]:
-    """Runs the validation loop and returns metrics."""
+    Eval mode with DDP all-reduce automatically.
+
+    Args:
+      dl: A *finite* DataLoader to evaluate on. Should be built from the same
+        model's converter.
+
+    Returns:
+      Dict with ``validation_loss``, ``validation_perplexity``, and any
+      additional metrics emitted by the model.
+    """
     self._optimizer.zero_grad(set_to_none=True)  # Free up memory.
     self._training_wrapper.eval()
 
@@ -166,7 +166,7 @@ class Trainer:
       no_sync_ctx = contextlib.nullcontext()
 
     with torch.no_grad(), no_sync_ctx:
-      for val_batch in self._val_dl:
+      for val_batch in dl:
         _, metrics = self._training_wrapper.forward(val_batch)
         bsz = next(iter(val_batch.values())).size(0)
 
