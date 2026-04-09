@@ -188,6 +188,57 @@ class StructuredTextVocab(EncoderVocab[str]):
     return self.tokenizer.get_vocab_size()
 
 
+class CharacterVocab(EncoderVocab[str]):
+  """Character-level vocabulary: each character is a single token.
+
+  Advantages over BPE/SentencePiece for chemistry strings (CIF, SMILES):
+  - No OOV: every printable ASCII character is in vocab.
+  - Tiny vocab (~100 tokens) → small embedding table.
+  - Finer positional granularity: element symbols ('Ti', 'Ga'), bond types
+    ('=', '#'), and numeric coordinates are all explicit at the character level.
+  - Collaborators have found character-level tokenization can improve
+    performance on SMILES regression tasks, likely due to the rich sub-token
+    structure of chemical notation.
+
+  Tokens are sorted by character code, with <pad>=0 and <unk>=1.
+  """
+
+  # All printable ASCII characters (0x20-0x7E) plus tab and newline.
+  DEFAULT_CHARS: str = (
+      " \t\n!\"#$%&'()*+,-./"
+      "0123456789:;<=>?@"
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`"
+      "abcdefghijklmnopqrstuvwxyz{|}~"
+  )
+
+  def __init__(self, chars: str | None = None):
+    """Initializes the character vocabulary.
+
+    Args:
+      chars: Characters to include. Defaults to printable ASCII + tab/newline.
+        Duplicate characters are silently deduplicated.
+    """
+    specials = ["<pad>", "<unk>"]
+    unique_chars = sorted(set(self.DEFAULT_CHARS if chars is None else chars))
+
+    self._stoi: dict[str, int] = {}
+    for i, s in enumerate(specials):
+      self._stoi[s] = i
+    for i, c in enumerate(unique_chars):
+      self._stoi[c] = i + len(specials)
+
+  def to_token_ids(self, obj: str, /) -> list[int]:
+    """Converts a string to a list of character-level token ids."""
+    return [self._stoi.get(c, self._stoi["<unk>"]) for c in obj]
+
+  @property
+  def pad_id(self) -> int:
+    return self._stoi["<pad>"]
+
+  def __len__(self) -> int:
+    return len(self._stoi)
+
+
 open_file = open
 
 
@@ -270,7 +321,8 @@ class SentencePieceVocab(EncoderVocab[str]):
         "eos_id": "-1",
         "hard_vocab_limit": "false",
         "byte_fallback": "true",
-        "split_by_number": "false",
+        "split_by_number": "true",
+        "split_digits": "true",
         "split_by_unicode_script": "false",
         "character_coverage": "1.0",
         "input_sentence_size": "0",
