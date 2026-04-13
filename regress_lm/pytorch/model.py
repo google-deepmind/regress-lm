@@ -27,6 +27,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+# pylint:disable=g-bare-generic
 NEG_INF = -1.0e7
 
 # Dict Keys: "encoder_input", "decoder_input", "decoder_target"
@@ -83,8 +84,20 @@ class PyTorchModelConfig:
 class PyTorchConverter(core.Converter[Tensor]):
   """Converts high-level inputs and examples to batched low-level inputs."""
 
+  _PY_TO_NP = {int: np.int64, float: np.float32, bool: np.bool_}
+
   def __init__(self, config: PyTorchModelConfig):
     self.cfg = config
+
+  def _pad_sequences(
+      self, seqs: list[list], padding: int | float | bool, dtype: np.dtype
+  ) -> np.ndarray:
+    """Pads variable-length sequences into a [B, max_len] numpy array."""
+    arr = np.full((len(seqs), self.cfg.max_input_len), padding, dtype=dtype)
+    for i, s in enumerate(seqs):
+      n = min(len(s), self.cfg.max_input_len)
+      arr[i, :n] = s[:n]
+    return arr
 
   def convert_inputs(
       self, inputs: Sequence[core.ExampleInput]
@@ -92,29 +105,30 @@ class PyTorchConverter(core.Converter[Tensor]):
     strings = [example.x for example in inputs]
 
     with self.cfg.make_threadpool() as executor:
-      encoder_token_ids = list(
-          executor.map(self.cfg.encoder_vocab.to_token_ids, strings)
+      features = list(executor.map(self.cfg.encoder_vocab.to_features, strings))
+
+    spec = self.cfg.encoder_vocab.features_spec
+
+    # Pad all features using the vocab's declared spec.
+    padded = {}
+    for key, fspec in spec.items():
+      padded[key] = torch.from_numpy(
+          self._pad_sequences(
+              [t[key] for t in features],
+              padding=fspec.padding,
+              dtype=self._PY_TO_NP[fspec.dtype],
+          )
       )
 
-    batch_size, max_len = len(strings), self.cfg.max_input_len
-
-    # Pre-allocate padded arrays for efficiency + inject in-place.
-    encoder_input_np = np.full(
-        (batch_size, max_len), self.cfg.encoder_vocab.pad_id, dtype=np.int64
-    )
-    input_token_lens_np = np.zeros(batch_size, dtype=np.int64)
-    for i, tokens in enumerate(encoder_token_ids):
-      tok_len = len(tokens)
-      input_token_lens_np[i] = tok_len
-
-      # Truncate if necessary and insert
-      insert_len = min(tok_len, max_len)
-      encoder_input_np[i, :insert_len] = tokens[:insert_len]
-
-    return {
-        'encoder_input': torch.from_numpy(encoder_input_np),
-        'input_token_lens': torch.from_numpy(input_token_lens_np),
+    result = {
+        'encoder_input': padded.pop('ids'),
+        'input_token_lens': torch.tensor(
+            [len(t['ids']) for t in features], dtype=torch.int64
+        ),
     }
+    if padded:
+      result['encoder_features'] = padded
+    return result
 
   def convert_examples(
       self, examples: Sequence[core.Example]
@@ -177,15 +191,25 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       return {k: v.to(self.device, non_blocking=True) for k, v in batch.items()}
     return batch.to(self.device, non_blocking=True)
 
+  def _batch_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
+    """Recursively moves all tensors in a batch dict to the model device."""
+    result = {}
+    for k, v in batch.items():
+      if isinstance(v, Tensor):
+        result[k] = v.to(self.device, non_blocking=True)
+      elif isinstance(v, dict):
+        result[k] = self._batch_to_device(v)
+      else:
+        result[k] = v
+    return result
+
   def compute_losses_and_metrics(
       self, examples: dict[str, Tensor]
   ) -> tuple[Tensor, dict[str, Tensor]]:
     metrics = {}
-    logits = self.encoder_decoder.forward(
-        self.to_device(examples['encoder_input']),
-        self.to_device(examples['decoder_input']),
-    )
-    targets = self.to_device(examples['decoder_target'])
+    examples = self._batch_to_device(examples)
+    logits = self.encoder_decoder.forward(examples)
+    targets = examples['decoder_target']
 
     ce_loss_per_tokens = F.cross_entropy(
         logits.permute(0, 2, 1),
@@ -217,11 +241,12 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       num_samples: int,
       temperature: float = 1.0,
   ) -> tuple[Tensor, np.ndarray]:
-    encoder_input = self.to_device(inputs['encoder_input'])  # (B, L_src)
+    inputs = self._batch_to_device(inputs)
+    encoder_input = inputs['encoder_input']  # (B, L_src)
     batch_size = encoder_input.shape[0]
     expanded_batch_size = batch_size * num_samples
     # memory: (B, L_src, D_model), memory_key_padding_mask: (B, L_src)
-    memory, memory_key_padding_mask = self.encoder_decoder.encode(encoder_input)
+    memory, memory_key_padding_mask = self.encoder_decoder.encode(inputs)
 
     # Expand encoder outputs and masks for num_samples
     # Effectively, new batch_size = B * num_samples
@@ -318,13 +343,11 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     return final_decoded_ids, output_floats
 
   def log_prob(self, examples: dict[str, Tensor]) -> Tensor:
-    logits = self.encoder_decoder.forward(
-        self.to_device(examples['encoder_input']),
-        self.to_device(examples['decoder_input']),
-    )
+    examples = self._batch_to_device(examples)
+    logits = self.encoder_decoder.forward(examples)
     log_probs = F.log_softmax(logits, dim=-1)
 
-    dec_target = self.to_device(examples['decoder_target'])
+    dec_target = examples['decoder_target']
     true_log_probs = torch.gather(
         log_probs, dim=2, index=dec_target.unsqueeze(-1)
     )

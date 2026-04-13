@@ -289,6 +289,127 @@ class FavorAttentionTest(parameterized.TestCase):
     )
 
 
+class XValEmbedderTest(parameterized.TestCase):
+  """Tests for the _XValEmbedder (xVal paper implementation)."""
+
+  def test_forward_shape(self):
+    """Output shape should be [B, L, D] regardless of xVal features."""
+    vocab_size, d_model = 42, 16
+    encoder = encoders.VanillaEncoder(
+        vocab_size=vocab_size, d_model=d_model, num_layers=1, max_len=32
+    )
+
+    batch_size, seq_len = 2, 10
+    src_ids = torch.randint(0, vocab_size, (batch_size, seq_len))
+    is_float = torch.zeros(batch_size, seq_len, dtype=torch.bool)
+    float_value = torch.zeros(batch_size, seq_len)
+
+    output = encoder(
+        src_ids,
+        src_key_padding_mask=None,
+        extra_features={"is_float": is_float, "float_value": float_value},
+    )
+    self.assertEqual(output.shape, (batch_size, seq_len, d_model))
+    self.assertFalse(torch.isnan(output).any())
+
+  def test_text_tokens_use_standard_embedding(self):
+    """Non-number tokens should produce the same output as StandardEmbedder."""
+    torch.manual_seed(42)
+    emb = torch.nn.Embedding(50, 16)
+    embedder = encoders.Embedder(emb)
+
+    ids = torch.tensor([[1, 2, 3]])
+    is_float = torch.tensor([[False, False, False]])
+    float_value = torch.tensor([[0.0, 0.0, 0.0]])
+
+    std_out = embedder(ids)
+    xval_out = embedder(
+        ids, extra_features={"is_float": is_float, "float_value": float_value}
+    )
+    self.assertTrue(
+        torch.allclose(std_out, xval_out, atol=1e-6),
+        "Text tokens should produce same embeddings as StandardEmbedder.",
+    )
+
+  def test_number_tokens_differ_by_value(self):
+    """Different float values should produce different embeddings."""
+    embedder = encoders.Embedder(torch.nn.Embedding(50, 16), num_xval_scales=2)
+    ids = torch.tensor([[49]])  # <num> token
+    is_float = torch.tensor([[True]])
+
+    out_small = embedder(
+        ids,
+        extra_features={
+            "is_float": is_float,
+            "float_value": torch.tensor([[0.01]]),
+        },
+    )
+    out_big = embedder(
+        ids,
+        extra_features={
+            "is_float": is_float,
+            "float_value": torch.tensor([[100.0]]),
+        },
+    )
+    self.assertFalse(
+        torch.allclose(out_small, out_big),
+        "Different float values must produce different embeddings.",
+    )
+
+  def test_gradients_flow_through_scale_embeddings(self):
+    """scale_embeddings should receive gradients during backprop."""
+    embedder = encoders.Embedder(torch.nn.Embedding(50, 16), num_xval_scales=2)
+    ids = torch.tensor([[49]])
+    is_float = torch.tensor([[True]])
+    float_value = torch.tensor([[3.14]])
+
+    out = embedder(
+        ids,
+        extra_features={"is_float": is_float, "float_value": float_value},
+    )
+    loss = out.sum()
+    loss.backward()
+    self.assertIsNotNone(embedder.xval_embeddings.weight.grad)
+    self.assertFalse(
+        torch.all(embedder.xval_embeddings.weight.grad == 0),
+        "xval_embeddings should have non-zero gradients.",
+    )
+
+  def test_no_extra_features_fallback(self):
+    """When extra_features is None, xVal embedder falls back to text embedding."""
+    embedder = encoders.Embedder(torch.nn.Embedding(50, 16), num_xval_scales=2)
+    ids = torch.tensor([[1, 2, 3]])
+    out = embedder(ids, extra_features=None)
+    self.assertEqual(out.shape, (1, 3, 16))
+
+  @parameterized.parameters(
+      (encoders.EncoderType.VANILLA,),
+      (encoders.EncoderType.PERFORMER,),
+  )
+  def test_encoder_with_xval_vocab(self, encoder_type):
+    """Full encoder forward pass with xVal vocab should work end-to-end."""
+    vocab_size, d_model = 42, 16
+
+    encoder = encoder_type.make(
+        vocab_size=vocab_size, d_model=d_model, num_layers=1, max_encoder_len=32
+    )
+
+    batch_size, seq_len = 2, 8
+    src_ids = torch.randint(0, vocab_size, (batch_size, seq_len))
+    is_float = torch.zeros(batch_size, seq_len, dtype=torch.bool)
+    is_float[:, -1] = True  # Last position is a number.
+    float_value = torch.zeros(batch_size, seq_len)
+    float_value[:, -1] = 42.0
+
+    output = encoder(
+        src_ids,
+        src_key_padding_mask=None,
+        extra_features={"is_float": is_float, "float_value": float_value},
+    )
+    self.assertEqual(output.shape, (batch_size, seq_len, d_model))
+    self.assertFalse(torch.isnan(output).any())
+
+
 class T5GemmaEncoderTest(parameterized.TestCase):
   """Tests for the T5GemmaEncoder wrapper."""
 
@@ -321,6 +442,32 @@ class T5GemmaEncoderTest(parameterized.TestCase):
     # --- 2. Test without padding mask ---
     output = encoder(src_ids, src_key_padding_mask=None)
     self.assertEqual(output.shape, (batch_size, seq_len, d_model))
+    self.assertFalse(torch.isnan(output).any())
+
+  def test_xval_forward(self):
+    """T5Gemma with XValVocabWrapper should produce valid output."""
+    batch_size, seq_len = 2, 12
+    model_name = "google/t5gemma-s-s-prefixlm"
+    vocab = vocabs.HuggingFaceVocab(model_name)
+    encoder = encoders.T5GemmaEncoder(
+        vocab_size=len(vocab), model_name=model_name
+    )
+
+    src_ids = torch.randint(
+        0, len(vocab), (batch_size, seq_len), dtype=torch.long
+    )
+    is_float = torch.zeros(batch_size, seq_len, dtype=torch.bool)
+    is_float[:, -2:] = True
+    float_value = torch.zeros(batch_size, seq_len)
+    float_value[:, -2] = 3.14
+    float_value[:, -1] = -100.0
+
+    output = encoder(
+        src_ids,
+        src_key_padding_mask=None,
+        extra_features={"is_float": is_float, "float_value": float_value},
+    )
+    self.assertEqual(output.shape, (batch_size, seq_len, encoder.hidden_dim))
     self.assertFalse(torch.isnan(output).any())
 
 

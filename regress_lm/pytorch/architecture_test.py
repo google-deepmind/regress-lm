@@ -62,7 +62,9 @@ class ArchitectureTest(absltest.TestCase):
     # Add some padding to tgt_input
     tgt_input[0, -1:] = self.decoder_pad_idx
 
-    output_logits = self.model(src, tgt_input)
+    output_logits = self.model(
+        {'encoder_input': src, 'decoder_input': tgt_input}
+    )
 
     self.assertEqual(
         output_logits.shape,
@@ -75,7 +77,7 @@ class ArchitectureTest(absltest.TestCase):
     )
     src[0, -3:] = self.encoder_pad_idx  # Add padding
 
-    memory, memory_key_padding_mask = self.model.encode(src)
+    memory, memory_key_padding_mask = self.model.encode({'encoder_input': src})
 
     self.assertEqual(
         memory.shape, (self.batch_size, self.src_seq_len, self.d_model)
@@ -92,7 +94,7 @@ class ArchitectureTest(absltest.TestCase):
     src = torch.randint(
         1, self.encoder_vocab_size, (self.batch_size, self.src_seq_len)
     )
-    memory, memory_key_padding_mask = self.model.encode(src)
+    memory, memory_key_padding_mask = self.model.encode({'encoder_input': src})
 
     # Simulate decoding one step with just a start token
     current_tgt_len = 1
@@ -131,7 +133,7 @@ class ArchitectureTest(absltest.TestCase):
     src = torch.randint(
         batch_size, self.encoder_vocab_size, (batch_size, self.src_seq_len)
     )
-    memory, memory_key_padding_mask = self.model.encode(src)
+    memory, memory_key_padding_mask = self.model.encode({'encoder_input': src})
 
     # Begin with the start (padding) token.
     current_tgt_tokens = torch.LongTensor([[self.decoder_pad_idx]])
@@ -161,5 +163,5 @@ class ArchitectureTest(absltest.TestCase):
     )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   absltest.main()
