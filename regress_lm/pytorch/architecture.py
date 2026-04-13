@@ -43,7 +43,7 @@ class _PositionalEncoding(nn.Module):
     pe = torch.zeros(1, max_len, d_model)
     pe[0, :, 0::2] = torch.sin(pos * div)
     pe[0, :, 1::2] = torch.cos(pos * div)
-    self.register_buffer("pe", pe)
+    self.register_buffer('pe', pe)
 
   def forward(self, x: torch.Tensor) -> torch.Tensor:
     return self.dropout(x + self.pe[:, : x.size(1)])
@@ -97,11 +97,26 @@ class EncoderDecoder(nn.Module):
     )
     self.generator = nn.Linear(self.encoder.hidden_dim, decoder_vocab_size)
 
-  def forward(self, src: torch.Tensor, tgt_input: torch.Tensor) -> torch.Tensor:
+  def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    """Runs the full encoder-decoder forward pass.
+
+    Args:
+      batch: Dict with 'encoder_input', 'decoder_input', and optionally
+        'encoder_features' (dict of per-token feature tensors).
+
+    Returns:
+      Decoder output logits for each token in the decoder input.
+    """
+    src = batch['encoder_input']
+    tgt_input = batch['decoder_input']
     src_padding_mask = src == self.encoder_pad_idx
 
     with nn.attention.sdpa_kernel(SPD_BACKENDS):
-      memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
+      memory = self.encoder(
+          src,
+          src_key_padding_mask=src_padding_mask,
+          extra_features=batch.get('encoder_features'),
+      )
       decoder_output = self.decoder(
           tgt=self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input)),
           memory=memory.to(dtype=self.tgt_tok_emb.weight.dtype),
@@ -111,11 +126,26 @@ class EncoderDecoder(nn.Module):
       )
     return self.generator(decoder_output)
 
-  def encode(self, src: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Encodes the source sequence."""
+  def encode(
+      self, batch: dict[str, torch.Tensor]
+  ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Encodes the source sequence.
+
+    Args:
+      batch: Dict with 'encoder_input' and optionally 'encoder_features' (dict
+        of per-token feature tensors).
+
+    Returns:
+      A tuple of (memory, src_padding_mask).
+    """
+    src = batch['encoder_input']
     src_padding_mask = src == self.encoder_pad_idx
     with nn.attention.sdpa_kernel(SPD_BACKENDS):
-      memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
+      memory = self.encoder(
+          src,
+          src_key_padding_mask=src_padding_mask,
+          extra_features=batch.get('encoder_features'),
+      )
     return memory, src_padding_mask
 
   def next_token_logits(

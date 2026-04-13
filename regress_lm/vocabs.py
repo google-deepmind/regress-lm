@@ -15,13 +15,25 @@
 """Custom vocab classes for RegressLM."""
 
 import abc
+import dataclasses
 import pathlib
+import re
 from typing import Any, Generic, Sequence, TypeVar
 from regress_lm import tokenizers
 import tokenizers as ht
 import transformers
 import sentencepiece as spp
 import sentencepiece as spt
+
+# pylint:disable=g-bare-generic
+
+
+@dataclasses.dataclass(frozen=True)
+class FeatureSpec:
+  """Declares the type and padding fill value for one feature key."""
+
+  dtype: type[int | float | bool]
+  padding: int | float | bool
 
 
 ObjectT = TypeVar("ObjectT")
@@ -39,6 +51,9 @@ class BaseVocab(abc.ABC, Generic[ObjectT]):
     """Returns the vocab size."""
 
 
+# TODO: Consider making all encoder vocabs just `EncoderTokenizer`
+# subclasses and have a single class `EncoderVocab` which just handles the
+# token-id mapping.
 class EncoderVocab(BaseVocab[ObjectT]):
   """Vocabulary class for encoders.
 
@@ -49,6 +64,27 @@ class EncoderVocab(BaseVocab[ObjectT]):
   @abc.abstractmethod
   def pad_id(self) -> int:
     """Returns the pad id."""
+
+  @property
+  def features_spec(self) -> dict[str, FeatureSpec]:
+    """Declares (dtype, padding) for each feature returned by to_features()."""
+    return {"ids": FeatureSpec(dtype=int, padding=self.pad_id)}
+
+  # TODO: Detatch this class from BaseVocab and remove the need for
+  # `to_token_ids`.
+  def to_features(self, obj: ObjectT, /) -> dict[str, list]:
+    """Returns per-token features, including token IDs.
+
+    Must contain 'ids' (list[int]). May contain additional per-token
+    features as extra keys (e.g. 'is_float', 'float_value').
+
+    Args:
+      obj: The object to convert to features.
+
+    Returns:
+      A dict with per-token features.
+    """
+    return {"ids": self.to_token_ids(obj)}
 
 
 class DecoderVocab(BaseVocab[ObjectT]):
@@ -190,15 +226,6 @@ class StructuredTextVocab(EncoderVocab[str]):
 
 class CharacterVocab(EncoderVocab[str]):
   """Character-level vocabulary: each character is a single token.
-
-  Advantages over BPE/SentencePiece for chemistry strings (CIF, SMILES):
-  - No OOV: every printable ASCII character is in vocab.
-  - Tiny vocab (~100 tokens) → small embedding table.
-  - Finer positional granularity: element symbols ('Ti', 'Ga'), bond types
-    ('=', '#'), and numeric coordinates are all explicit at the character level.
-  - Collaborators have found character-level tokenization can improve
-    performance on SMILES regression tasks, likely due to the rich sub-token
-    structure of chemical notation.
 
   Tokens are sorted by character code, with <pad>=0 and <unk>=1.
   """
@@ -354,3 +381,62 @@ class HuggingFaceVocab(EncoderVocab[str]):
 
   def __len__(self) -> int:
     return len(self.tokenizer)
+
+
+class XValVocabWrapper(EncoderVocab[str]):
+  """Wraps any EncoderVocab to add xVal continuous number encoding.
+
+  Each number in the input text is replaced with a single <num> token.
+  The raw float value is preserved in per-token features (`is_float`,
+  `float_value`) for the embedder to interpret.
+
+  The vocab adds exactly one extra token ID beyond the base vocab. The
+  scale decomposition (powers of 10, tanh, etc.) is handled entirely
+  by the embedder, not here.
+  """
+
+  _NUMBER_RE = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+
+  def __init__(self, base_vocab: EncoderVocab[str]):
+    self.base_vocab = base_vocab
+    self._num_token_id = len(base_vocab)  # Single <num> ID.
+
+  @property
+  def features_spec(self) -> dict[str, FeatureSpec]:
+    return {
+        "ids": FeatureSpec(dtype=int, padding=self.pad_id),
+        "is_float": FeatureSpec(dtype=bool, padding=False),
+        "float_value": FeatureSpec(dtype=float, padding=0.0),
+    }
+
+  def _append_text(self, text: str, ids, is_float, float_value):
+    """Tokenizes text via base vocab and appends non-float features."""
+    text_ids = self.base_vocab.to_token_ids(text)
+    ids.extend(text_ids)
+    is_float.extend([False] * len(text_ids))
+    float_value.extend([0.0] * len(text_ids))
+
+  def to_features(self, text: str, /) -> dict[str, list]:
+    """Tokenizes text, replacing each number with one <num> token."""
+    ids, is_float, float_value = [], [], []
+    last = 0
+    for m in self._NUMBER_RE.finditer(text):
+      if m.start() > last:
+        self._append_text(text[last : m.start()], ids, is_float, float_value)
+      ids.append(self._num_token_id)
+      is_float.append(True)
+      float_value.append(float(m.group()))
+      last = m.end()
+    if last < len(text):
+      self._append_text(text[last:], ids, is_float, float_value)
+    return {"ids": ids, "is_float": is_float, "float_value": float_value}
+
+  def to_token_ids(self, text: str, /) -> list[int]:
+    return self.to_features(text)["ids"]
+
+  @property
+  def pad_id(self) -> int:
+    return self.base_vocab.pad_id
+
+  def __len__(self) -> int:
+    return len(self.base_vocab) + 1  # base + <num>

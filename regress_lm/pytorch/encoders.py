@@ -48,18 +48,76 @@ class BaseEncoder(nn.Module, abc.ABC):
 
   @abc.abstractmethod
   def forward(
-      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self,
+      src_ids: torch.Tensor,
+      src_key_padding_mask: torch.Tensor | None,
+      extra_features: dict[str, torch.Tensor] | None = None,
   ) -> torch.Tensor:
     """Encodes the source sequence.
 
     Args:
         src_ids: The input tensor of token ids.
         src_key_padding_mask: The padding mask for the source tensor.
+        extra_features: Optional dict of per-token feature tensors from the
+          tokenizer (e.g. 'values' for xVal). Passed opaquely to the embedder.
 
     Returns:
         The encoded memory tensor.
     """
     raise NotImplementedError("Subclasses must implement the 'forward' method.")
+
+
+class Embedder(nn.Module, abc.ABC):
+  """Maps token IDs (and optional per-token features) to dense vectors.
+
+  Standard embedding is a simple lookup table; Optional xVal embedding (Golkar
+  et al. 2023) scales the lookup vectors by per-position continuous values.
+
+  Every token (text or number) occupies exactly one sequence position.
+  For text tokens: standard embedding lookup.
+  For number tokens: the embedding is a weighted sum of learnable scale
+  vectors — embedding = Σ_k  scale_emb[k] * tanh(x · 10^k), where k
+  ranges over {-num_scales, ..., 0, ..., num_scales}.
+  """
+
+  def __init__(self, embedding: nn.Embedding, num_xval_scales: int = 8):
+    super().__init__()
+    self.embedding = embedding
+
+    # Learnable scale embeddings: one d_model vector per scale exponent.
+    self.xval_embeddings = nn.Embedding(
+        2 * num_xval_scales + 1, embedding.embedding_dim
+    )
+    # Pre-compute the scale exponents as a buffer (not learned).
+    scales = torch.arange(
+        -num_xval_scales, num_xval_scales + 1, dtype=torch.float32
+    )
+    self.register_buffer("scale_exponents", 10.0**scales)  # [num_scales*2+1]
+
+  def forward(
+      self,
+      token_ids: torch.Tensor,
+      extra_features: dict[str, torch.Tensor] | None = None,
+  ) -> torch.Tensor:
+    text_emb = self.embedding(token_ids)  # [B, L, D]
+    if extra_features is None:
+      return text_emb
+
+    is_float = extra_features["is_float"]  # [B, L] bool
+    float_value = extra_features["float_value"]  # [B, L] float
+
+    # Compute xVal embedding for number positions:
+    # tanh(x * 10^k) for each scale k → [B, L, num_scales*2+1]
+    # Cast to match embedding dtype (e.g. bf16 for T5Gemma2).
+    target_dtype = text_emb.dtype
+    scaled = float_value.unsqueeze(-1) * self.scale_exponents  # [B, L, K]
+    coefficients = torch.tanh(scaled).to(target_dtype)  # [B, L, K]
+    scale_emb = self.xval_embeddings.weight.to(target_dtype)  # [K, D]
+    # Weighted sum of scale embeddings → [B, L, D]
+    num_emb = torch.einsum("blk,kd->bld", coefficients, scale_emb)
+
+    # Use text embedding for non-number positions, xVal for number positions.
+    return torch.where(is_float.unsqueeze(-1), num_emb, text_emb)
 
 
 class _RotaryPositionalEmbedding(nn.Module):
@@ -226,7 +284,7 @@ class VanillaEncoder(BaseEncoder):
       dropout: float = 0.0,
   ):
     super().__init__()
-    self.embedding = nn.Embedding(vocab_size, d_model)
+    self.embedder = Embedder(nn.Embedding(vocab_size, d_model))
     self.d_model = d_model
     self.rotary_pos_emb = _RotaryPositionalEmbedding(
         d_model // nhead, max_len=max_len
@@ -245,10 +303,13 @@ class VanillaEncoder(BaseEncoder):
     self.norm = nn.LayerNorm(d_model)
 
   def forward(
-      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self,
+      src_ids: torch.Tensor,
+      src_key_padding_mask: torch.Tensor | None,
+      extra_features: dict[str, torch.Tensor] | None = None,
   ) -> torch.Tensor:
     """Forward pass conforms to the BaseEncoder interface."""
-    output = self.embedding(src_ids)
+    output = self.embedder(src_ids, extra_features)
     for mod in self.layers:
       output = mod(
           output, self.rotary_pos_emb, src_key_padding_mask=src_key_padding_mask
@@ -267,7 +328,7 @@ class MambaEncoder(BaseEncoder):
       self, vocab_size: int, d_model: int, num_layers: int, **mamba_kwargs
   ):
     super().__init__()
-    self.embedding = nn.Embedding(vocab_size, d_model)
+    self.embedder = Embedder(nn.Embedding(vocab_size, d_model))
     self.d_model = d_model
     self.layers = nn.ModuleList([
         nn.Sequential(
@@ -279,9 +340,12 @@ class MambaEncoder(BaseEncoder):
     self.norm = nn.LayerNorm(d_model)
 
   def forward(
-      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self,
+      src_ids: torch.Tensor,
+      src_key_padding_mask: torch.Tensor | None,
+      extra_features: dict[str, torch.Tensor] | None = None,
   ) -> torch.Tensor:
-    output = self.embedding(src_ids)
+    output = self.embedder(src_ids, extra_features)
     for layer in self.layers:
       output = layer(output) + output  # Residual connection
 
@@ -548,7 +612,7 @@ class PerformerEncoder(BaseEncoder):
       dropout: float = 0.0,
   ):
     super().__init__()
-    self.embedding = nn.Embedding(vocab_size, d_model)
+    self.embedder = Embedder(nn.Embedding(vocab_size, d_model))
     self.d_model = d_model
     self.rotary_pos_emb = _RotaryPositionalEmbedding(
         d_model // nhead, max_len=max_len
@@ -572,9 +636,12 @@ class PerformerEncoder(BaseEncoder):
     self.norm = nn.LayerNorm(d_model)
 
   def forward(
-      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self,
+      src_ids: torch.Tensor,
+      src_key_padding_mask: torch.Tensor | None,
+      extra_features: dict[str, torch.Tensor] | None = None,
   ) -> torch.Tensor:
-    src = self.embedding(src_ids)
+    src = self.embedder(src_ids, extra_features)
 
     if self.training and self.redraw_interval is not None:
       self.training_calls += 1
@@ -666,14 +733,33 @@ class T5GemmaEncoder(BaseEncoder):
       for param in self.encoder.parameters():
         param.requires_grad = False
 
+    # Wrap HF's pretrained embedding in our Embedder abstraction.
+    # Create the embedder from spec but replace the embedding weights
+    # with the HF pretrained ones.
+    # T5Gemma has embed_tokens directly; T5Gemma2 nests it under text_model.
+    if hasattr(self.encoder, "embed_tokens"):
+      hf_embedding = self.encoder.embed_tokens
+    elif hasattr(self.encoder, "text_model"):
+      hf_embedding = self.encoder.text_model.embed_tokens
+    else:
+      raise AttributeError(
+          f"Cannot find embed_tokens on {type(self.encoder).__name__}"
+      )
+    self._embedder = Embedder(hf_embedding)
+
   def forward(
-      self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self,
+      src_ids: torch.Tensor,
+      src_key_padding_mask: torch.Tensor | None,
+      extra_features: dict[str, torch.Tensor] | None = None,
   ) -> torch.Tensor:
     attention_mask = (
         ~src_key_padding_mask if src_key_padding_mask is not None else None
     )
     enc_out = self.encoder(
-        input_ids=src_ids, attention_mask=attention_mask, return_dict=True
+        inputs_embeds=self._embedder(src_ids, extra_features),
+        attention_mask=attention_mask,
+        return_dict=True,
     )
     return enc_out.last_hidden_state
 
