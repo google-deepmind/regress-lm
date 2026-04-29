@@ -72,9 +72,9 @@ class RegressLM:
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=kwargs.get("num_encoder_layers", 2),
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
-        decoder_dropout=kwargs.get("decoder_dropout", 0.0),
+        decoder_dropout=kwargs.get("dropout", 0.0),
         encoder_type=encoders.EncoderType.VANILLA,
-        additional_encoder_kwargs=kwargs.get("additional_encoder_kwargs", {}),
+        additional_encoder_kwargs={"dropout": kwargs.get("dropout", 0.0)},
     )
 
     config = pytorch_model.PyTorchModelConfig(
@@ -108,7 +108,7 @@ class RegressLM:
         d_model=kwargs.get("d_model", 512),
         num_encoder_layers=0,  # Dummy value, will be ignored.
         num_decoder_layers=kwargs.get("num_decoder_layers", 2),
-        decoder_dropout=kwargs.get("decoder_dropout", 0.0),
+        decoder_dropout=kwargs.get("dropout", 0.0),
         encoder_type=encoders.EncoderType.T5GEMMA,
         additional_encoder_kwargs={
             "model_name": model_name,

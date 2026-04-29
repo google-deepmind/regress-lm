@@ -21,6 +21,7 @@ import logging
 import math
 import os
 from typing import Callable, Literal
+
 # The following import is needed for loading T5Gemma models.
 import safetensors.torch  # pylint: disable=unused-import
 import torch
@@ -28,7 +29,6 @@ from torch import nn
 from torch.nn import functional as F
 import transformers
 transformers_v5 = transformers
-
 
 # pylint: disable=g-import-not-at-top
 try:
@@ -121,11 +121,7 @@ class _VanillaTransformerEncoderLayer(nn.Module):
   """A Transformer Encoder Layer with RoPE support."""
 
   def __init__(
-      self,
-      d_model: int,
-      dim_feedforward: int,
-      nhead: int,
-      dropout: float,
+      self, d_model: int, dim_feedforward: int, nhead: int, dropout: float
   ):
     super().__init__()
     self.d_model = d_model
@@ -143,13 +139,9 @@ class _VanillaTransformerEncoderLayer(nn.Module):
     self.norm1 = nn.LayerNorm(d_model)
     self.norm2 = nn.LayerNorm(d_model)
 
-    self.dropout1 = nn.Dropout(dropout)
-    self.dropout2 = nn.Dropout(dropout)
-    self.attn_dropout_p = dropout  # For F.scaled_dot_product_attention
-
     self.linear1 = nn.Linear(d_model, dim_feedforward)
     self.activation = nn.ReLU()
-    self.ff_dropout = nn.Dropout(dropout)
+    self.ff_dropout = nn.Dropout(dropout)  # Only dropout: FFN internal.
     self.linear2 = nn.Linear(dim_feedforward, d_model)
 
   def _sa_block(
@@ -181,13 +173,7 @@ class _VanillaTransformerEncoderLayer(nn.Module):
         if key_padding_mask is not None
         else None
     )
-    attn_output = F.scaled_dot_product_attention(
-        q,
-        k,
-        v,
-        attn_mask=final_attn_mask,
-        dropout_p=self.attn_dropout_p if self.training else 0.0,
-    )
+    attn_output = F.scaled_dot_product_attention(q, k, v, final_attn_mask)
 
     # Reshape and apply output projection
     attn_output = (
@@ -206,10 +192,8 @@ class _VanillaTransformerEncoderLayer(nn.Module):
   ) -> torch.Tensor:
     """Applies the encoder layer with the Pre-Norm structure."""
     x = src
-    x = x + self.dropout1(
-        self._sa_block(self.norm1(x), rotary_pos_emb, src_key_padding_mask)
-    )
-    return x + self.dropout2(self._ff_block(self.norm2(x)))
+    x = x + self._sa_block(self.norm1(x), rotary_pos_emb, src_key_padding_mask)
+    return x + self._ff_block(self.norm2(x))
 
 
 class VanillaEncoder(BaseEncoder):
@@ -465,12 +449,9 @@ class _PerformerEncoderLayer(nn.Module):
 
     self.norm1 = nn.LayerNorm(d_model)
     self.norm2 = nn.LayerNorm(d_model)
-    self.dropout1 = nn.Dropout(dropout)
-    self.dropout2 = nn.Dropout(dropout)
-
     self.linear1 = nn.Linear(d_model, dim_feedforward)
     self.activation = nn.ReLU()
-    self.ff_dropout = nn.Dropout(dropout)
+    self.ff_dropout = nn.Dropout(dropout)  # Only dropout: FFN internal.
     self.linear2 = nn.Linear(dim_feedforward, d_model)
 
   @torch.no_grad()
@@ -528,8 +509,8 @@ class _PerformerEncoderLayer(nn.Module):
     attn_output = attn_output.contiguous().view(B, L, self.d_model)
     attn_output = self.out_proj(attn_output)
 
-    x = x + self.dropout1(attn_output)
-    return x + self.dropout2(self._ff_block(self.norm2(x)))
+    x = x + attn_output
+    return x + self._ff_block(self.norm2(x))
 
 
 class PerformerEncoder(BaseEncoder):
@@ -603,7 +584,7 @@ class T5GemmaEncoder(BaseEncoder):
       freeze_weights: bool = False,
       attn_implementation: str = "sdpa",  # Flash causes issues ATM.
       all_global_attn: bool = False,  # Turn on for short sequences.
-      dropout: float = 0.0,
+      dropout: float = 0.0,  # Only affects FFN.
       use_grad_ckpt: bool = False,
       multimodal: bool = False,
       dtype: torch.dtype = torch.float32,  # NOTE: Internally bf16 crashes.
@@ -623,8 +604,8 @@ class T5GemmaEncoder(BaseEncoder):
       )
 
     config = AutoConfig.from_pretrained(model_name)
-    config.dropout_rate = dropout
-    config.attention_dropout = dropout
+    config.dropout_rate = dropout  # FFN + residual (residual removed below).
+    config.attention_dropout = 0.0  # Attention weights: always 0.
     if all_global_attn:
       enc_cfg = config.encoder
       enc_cfg = (
@@ -665,6 +646,15 @@ class T5GemmaEncoder(BaseEncoder):
     if freeze_weights:
       for param in self.encoder.parameters():
         param.requires_grad = False
+
+    # Zero out residual dropouts; keep only FFN internal dropout.
+    # Both v1 and v2 use T5Gemma(2)EncoderLayer with .layers and .dropout.
+    if hasattr(self.encoder, "text_model"):  # T5Gemma v2.
+      layers = self.encoder.text_model.layers
+    else:  # T5Gemma v1.
+      layers = self.encoder.layers
+    for layer in layers:
+      layer.dropout.p = 0.0  # Residual dropout (shared by both sub-layers).
 
   def forward(
       self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None

@@ -33,9 +33,8 @@ SPD_BACKENDS = [
 class _PositionalEncoding(nn.Module):
   """Default positional encoding."""
 
-  def __init__(self, d_model: int, max_len: int, dropout: float):
+  def __init__(self, d_model: int, max_len: int):
     super().__init__()
-    self.dropout = nn.Dropout(p=dropout)
     pos = torch.arange(max_len).unsqueeze(1)
     div = torch.exp(
         torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
@@ -46,7 +45,7 @@ class _PositionalEncoding(nn.Module):
     self.register_buffer("pe", pe)
 
   def forward(self, x: torch.Tensor) -> torch.Tensor:
-    return self.dropout(x + self.pe[:, : x.size(1)])
+    return x + self.pe[:, : x.size(1)]
 
 
 class EncoderDecoder(nn.Module):
@@ -82,7 +81,6 @@ class EncoderDecoder(nn.Module):
     self.decoder_positional_encoding = _PositionalEncoding(
         self.encoder.hidden_dim,
         max_len=max_decoder_len,
-        dropout=decoder_dropout,
     )
     decoder_layer = nn.TransformerDecoderLayer(
         self.encoder.hidden_dim,
@@ -92,6 +90,13 @@ class EncoderDecoder(nn.Module):
         batch_first=True,
         norm_first=True,
     )
+    # Dropout only applies to the FFN internal (self.dropout).
+    # Zero out everything else: attention weights and residual connections.
+    decoder_layer.self_attn.dropout = 0.0
+    decoder_layer.multihead_attn.dropout = 0.0
+    decoder_layer.dropout1.p = 0.0  # Residual after self-attention.
+    decoder_layer.dropout2.p = 0.0  # Residual after cross-attention.
+    decoder_layer.dropout3.p = 0.0  # Residual after FFN.
     self.decoder = nn.TransformerDecoder(
         decoder_layer, num_layers=num_decoder_layers
     )
