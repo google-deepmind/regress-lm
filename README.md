@@ -144,12 +144,9 @@ If you find this project useful, please consider citing the relevant works:
 @article{code_rlm,
       title={Regression Language Models for Code},
       author={Yash Akhauri and Xingyou Song and Arissa Wongpanich and Bryan Lewandowski and Mohamed S. Abdelfattah},
-      year={2025},
-      eprint={2509.26476},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2509.26476},
-      journal={arXiv preprint arXiv:2509.26476},
+      booktitle={International Conference on Machine Learning},
+      series={Proceedings of Machine Learning Research},
+      year={2026},
 }
 
 @article{performance_prediction,
