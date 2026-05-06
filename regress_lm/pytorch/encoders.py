@@ -28,7 +28,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import transformers
-transformers_v5 = transformers
 
 # pylint: disable=g-import-not-at-top
 try:
@@ -593,9 +592,9 @@ class T5GemmaEncoder(BaseEncoder):
     # pylint:disable=invalid-name
 
     if "t5gemma-2-" in model_name:
-      AutoConfig = transformers_v5.AutoConfig
+      AutoConfig = transformers.AutoConfig
       T5GemmaForConditionalGeneration = (
-          transformers_v5.T5Gemma2ForConditionalGeneration
+          transformers.T5Gemma2ForConditionalGeneration
       )
     else:
       AutoConfig = transformers.AutoConfig
