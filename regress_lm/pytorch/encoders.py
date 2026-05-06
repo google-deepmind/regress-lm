@@ -591,16 +591,12 @@ class T5GemmaEncoder(BaseEncoder):
     super().__init__()
     # pylint:disable=invalid-name
 
-    if "t5gemma-2-" in model_name:
-      AutoConfig = transformers.AutoConfig
-      T5GemmaForConditionalGeneration = (
-          transformers.T5Gemma2ForConditionalGeneration
-      )
-    else:
-      AutoConfig = transformers.AutoConfig
-      T5GemmaForConditionalGeneration = (
-          transformers.T5GemmaForConditionalGeneration
-      )
+    AutoConfig = transformers.AutoConfig
+    T5GemmaForConditionalGeneration = (
+        transformers.T5Gemma2ForConditionalGeneration
+        if "t5gemma-2-" in model_name
+        else transformers.T5GemmaForConditionalGeneration
+    )
 
     config = AutoConfig.from_pretrained(model_name)
     config.dropout_rate = dropout  # FFN + residual (residual removed below).
