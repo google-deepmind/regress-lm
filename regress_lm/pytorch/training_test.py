@@ -55,7 +55,6 @@ class TrainingTest(absltest.TestCase):
         optimizer_factory=optim.Adafactor,
         scheduler_factory=lr_scheduler.ConstantLR,
         train_ds=ds,
-        validation_ds=ds,
         batch_size=2,
         use_ddp=False,  # Can't test distributed training.
         num_data_workers=2,
@@ -66,7 +65,7 @@ class TrainingTest(absltest.TestCase):
     for batch in self.trainer.train_dl:
       self.trainer.run_train_step(batch)
 
-    self.trainer.run_validation_epoch()
+    self.trainer.run_eval_epoch(self.trainer.train_dl)
 
 
 if __name__ == '__main__':

@@ -12,15 +12,15 @@ dependencies = [
     "absl-py",
     "numpy",
     "ordered-set",
-    "gcsfs",
+    "gcsfs",  # For downloading T5-vocabulary.
     "tokenizers",
-    "sentencepiece",
+    "sentencepiece",  # For default tokenization + creating custom vocabs.
     "torch",
-    "peft",
 ]
 
 [project.optional-dependencies]
 extras = [
     "transformers",  # for T5Gemma model.
+    "peft",  # for LoRA fine-tuning.
     # "mamba-ssm[causal-conv1d]",  # for Mamba SSM model. cuda errors ATM.
 ]

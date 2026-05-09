@@ -15,21 +15,19 @@
 """Different encoder types."""
 
 import abc
-import copy
 import enum
 import functools
 import logging
 import math
 import os
 from typing import Callable, Literal
+
 # The following import is needed for loading T5Gemma models.
 import safetensors.torch  # pylint: disable=unused-import
 import torch
 from torch import nn
 from torch.nn import functional as F
 import transformers
-transformers_v5 = transformers
-
 
 # pylint: disable=g-import-not-at-top
 try:
@@ -122,11 +120,7 @@ class _VanillaTransformerEncoderLayer(nn.Module):
   """A Transformer Encoder Layer with RoPE support."""
 
   def __init__(
-      self,
-      d_model: int,
-      dim_feedforward: int,
-      nhead: int,
-      dropout: float,
+      self, d_model: int, dim_feedforward: int, nhead: int, dropout: float
   ):
     super().__init__()
     self.d_model = d_model
@@ -144,13 +138,9 @@ class _VanillaTransformerEncoderLayer(nn.Module):
     self.norm1 = nn.LayerNorm(d_model)
     self.norm2 = nn.LayerNorm(d_model)
 
-    self.dropout1 = nn.Dropout(dropout)
-    self.dropout2 = nn.Dropout(dropout)
-    self.attn_dropout_p = dropout  # For F.scaled_dot_product_attention
-
     self.linear1 = nn.Linear(d_model, dim_feedforward)
     self.activation = nn.ReLU()
-    self.ff_dropout = nn.Dropout(dropout)
+    self.ff_dropout = nn.Dropout(dropout)  # Only dropout: FFN internal.
     self.linear2 = nn.Linear(dim_feedforward, d_model)
 
   def _sa_block(
@@ -174,18 +164,15 @@ class _VanillaTransformerEncoderLayer(nn.Module):
     cos, sin = rotary_pos_emb(q)
     q, k = _apply_rotary_pos_emb(q, k, cos, sin)
 
+    # key_padding_mask convention: True = padding (ignore), False = real token.
+    # F.scaled_dot_product_attention bool attn_mask convention: True = attend.
+    # Must negate so padding positions are masked out.
     final_attn_mask = (
-        key_padding_mask.view(B, 1, 1, L)
+        ~key_padding_mask.view(B, 1, 1, L)
         if key_padding_mask is not None
         else None
     )
-    attn_output = F.scaled_dot_product_attention(
-        q,
-        k,
-        v,
-        attn_mask=final_attn_mask,
-        dropout_p=self.attn_dropout_p if self.training else 0.0,
-    )
+    attn_output = F.scaled_dot_product_attention(q, k, v, final_attn_mask)
 
     # Reshape and apply output projection
     attn_output = (
@@ -204,10 +191,8 @@ class _VanillaTransformerEncoderLayer(nn.Module):
   ) -> torch.Tensor:
     """Applies the encoder layer with the Pre-Norm structure."""
     x = src
-    x = x + self.dropout1(
-        self._sa_block(self.norm1(x), rotary_pos_emb, src_key_padding_mask)
-    )
-    return x + self.dropout2(self._ff_block(self.norm2(x)))
+    x = x + self._sa_block(self.norm1(x), rotary_pos_emb, src_key_padding_mask)
+    return x + self._ff_block(self.norm2(x))
 
 
 class VanillaEncoder(BaseEncoder):
@@ -230,12 +215,15 @@ class VanillaEncoder(BaseEncoder):
         d_model // nhead, max_len=max_len
     )
 
-    layer = _VanillaTransformerEncoderLayer(
-        d_model, expand * d_model, nhead, dropout
-    )
-    self.layers = nn.ModuleList(
-        [copy.deepcopy(layer) for _ in range(num_layers)]
-    )
+    # Instantiate each layer independently so weights are randomly initialized
+    # per-layer. deepcopy from a single prototype would give identical weights,
+    # which causes permanent layer symmetry collapse when using Muon optimizer.
+    self.layers = nn.ModuleList([
+        _VanillaTransformerEncoderLayer(
+            d_model, expand * d_model, nhead, dropout
+        )
+        for _ in range(num_layers)
+    ])
     self.num_layers = num_layers
     self.norm = nn.LayerNorm(d_model)
 
@@ -429,7 +417,11 @@ class _PerformerEncoderLayer(nn.Module):
       raise ValueError("d_model must be divisible by nhead")
 
     if num_features is None:
-      num_features = 2 * int(self.head_dim * math.log(self.head_dim))
+      # Use d_model (= nhead * head_dim) as the default number of random
+      # features. This is comfortably above the theoretical minimum of
+      # head_dim * log(head_dim) for all practical nhead values, and avoids
+      # the approximation quality degrading silently on larger models.
+      num_features = d_model
     self.num_features = num_features
 
     if kernel_name == "softmax":
@@ -456,12 +448,9 @@ class _PerformerEncoderLayer(nn.Module):
 
     self.norm1 = nn.LayerNorm(d_model)
     self.norm2 = nn.LayerNorm(d_model)
-    self.dropout1 = nn.Dropout(dropout)
-    self.dropout2 = nn.Dropout(dropout)
-
     self.linear1 = nn.Linear(d_model, dim_feedforward)
     self.activation = nn.ReLU()
-    self.ff_dropout = nn.Dropout(dropout)
+    self.ff_dropout = nn.Dropout(dropout)  # Only dropout: FFN internal.
     self.linear2 = nn.Linear(dim_feedforward, d_model)
 
   @torch.no_grad()
@@ -480,7 +469,10 @@ class _PerformerEncoderLayer(nn.Module):
     return self.linear2(self.ff_dropout(self.activation(self.linear1(x))))
 
   def forward(
-      self, src: torch.Tensor, src_key_padding_mask: torch.Tensor | None
+      self,
+      src: torch.Tensor,
+      rotary_pos_emb: _RotaryPositionalEmbedding,
+      src_key_padding_mask: torch.Tensor | None,
   ) -> torch.Tensor:
     x = src
     x_norm = self.norm1(x)
@@ -490,9 +482,18 @@ class _PerformerEncoderLayer(nn.Module):
     v = self.v_proj(x_norm)
 
     # Reshape for multi-head: (B, L, D) -> (B, L, H, D_h)
-    q = q.view(-1, x.shape[1], self.nhead, self.head_dim)
-    k = k.view(-1, x.shape[1], self.nhead, self.head_dim)
-    v = v.view(-1, x.shape[1], self.nhead, self.head_dim)
+    B, L, _ = x.shape  # pylint: disable=invalid-name
+    q = q.view(B, L, self.nhead, self.head_dim)
+    k = k.view(B, L, self.nhead, self.head_dim)
+    v = v.view(B, L, self.nhead, self.head_dim)
+
+    # Apply RoPE: transpose to (B, H, L, D_h), rotate, transpose back.
+    q_rope = q.transpose(1, 2)
+    k_rope = k.transpose(1, 2)
+    cos, sin = rotary_pos_emb(q_rope)
+    q_rope, k_rope = _apply_rotary_pos_emb(q_rope, k_rope, cos, sin)
+    q = q_rope.transpose(1, 2)  # back to (B, L, H, D_h)
+    k = k_rope.transpose(1, 2)
 
     # Create mask for favor_attention (True for real tokens)
     mask = ~src_key_padding_mask if src_key_padding_mask is not None else None
@@ -504,11 +505,11 @@ class _PerformerEncoderLayer(nn.Module):
         projection_matrix=self.projection_matrix,
         inputs_mask=mask,
     )
-    attn_output = attn_output.contiguous().view(-1, x.shape[1], self.d_model)
+    attn_output = attn_output.contiguous().view(B, L, self.d_model)
     attn_output = self.out_proj(attn_output)
 
-    x = x + self.dropout1(attn_output)
-    return x + self.dropout2(self._ff_block(self.norm2(x)))
+    x = x + attn_output
+    return x + self._ff_block(self.norm2(x))
 
 
 class PerformerEncoder(BaseEncoder):
@@ -519,6 +520,7 @@ class PerformerEncoder(BaseEncoder):
       vocab_size: int,
       d_model: int,
       num_layers: int,
+      max_len: int,
       kernel_name: Literal["softmax", "relu"] = "relu",
       num_features: int | None = None,
       redraw_interval: int | None = None,
@@ -528,17 +530,23 @@ class PerformerEncoder(BaseEncoder):
     super().__init__()
     self.embedding = nn.Embedding(vocab_size, d_model)
     self.d_model = d_model
-    layer = _PerformerEncoderLayer(
-        d_model,
-        nhead,
-        dim_feedforward=4 * d_model,
-        kernel_name=kernel_name,
-        num_features=num_features,
-        dropout=dropout,
+    self.rotary_pos_emb = _RotaryPositionalEmbedding(
+        d_model // nhead, max_len=max_len
     )
-    self.layers = nn.ModuleList(
-        [copy.deepcopy(layer) for _ in range(num_layers)]
-    )
+    # Instantiate each layer independently so weights are randomly initialized
+    # per-layer. deepcopy from a single prototype would give identical weights,
+    # which causes permanent layer symmetry collapse when using Muon optimizer.
+    self.layers = nn.ModuleList([
+        _PerformerEncoderLayer(
+            d_model,
+            nhead,
+            dim_feedforward=4 * d_model,
+            kernel_name=kernel_name,
+            num_features=num_features,
+            dropout=dropout,
+        )
+        for _ in range(num_layers)
+    ])
     self.redraw_interval = redraw_interval
     self.register_buffer("training_calls", torch.tensor(0))
     self.norm = nn.LayerNorm(d_model)
@@ -556,7 +564,7 @@ class PerformerEncoder(BaseEncoder):
 
     output = src
     for layer in self.layers:
-      output = layer(output, src_key_padding_mask)
+      output = layer(output, self.rotary_pos_emb, src_key_padding_mask)
     return self.norm(output)
 
   @property
@@ -575,7 +583,7 @@ class T5GemmaEncoder(BaseEncoder):
       freeze_weights: bool = False,
       attn_implementation: str = "sdpa",  # Flash causes issues ATM.
       all_global_attn: bool = False,  # Turn on for short sequences.
-      dropout: float = 0.0,
+      dropout: float = 0.0,  # Only affects FFN.
       use_grad_ckpt: bool = False,
       multimodal: bool = False,
       dtype: torch.dtype = torch.float32,  # NOTE: Internally bf16 crashes.
@@ -583,20 +591,16 @@ class T5GemmaEncoder(BaseEncoder):
     super().__init__()
     # pylint:disable=invalid-name
 
-    if "t5gemma-2-" in model_name:
-      AutoConfig = transformers_v5.AutoConfig
-      T5GemmaForConditionalGeneration = (
-          transformers_v5.T5Gemma2ForConditionalGeneration
-      )
-    else:
-      AutoConfig = transformers.AutoConfig
-      T5GemmaForConditionalGeneration = (
-          transformers.T5GemmaForConditionalGeneration
-      )
+    AutoConfig = transformers.AutoConfig
+    T5GemmaForConditionalGeneration = (
+        transformers.T5Gemma2ForConditionalGeneration
+        if "t5gemma-2-" in model_name
+        else transformers.T5GemmaForConditionalGeneration
+    )
 
     config = AutoConfig.from_pretrained(model_name)
-    config.dropout_rate = dropout
-    config.attention_dropout = dropout
+    config.dropout_rate = dropout  # FFN + residual (residual removed below).
+    config.attention_dropout = 0.0  # Attention weights: always 0.
     if all_global_attn:
       enc_cfg = config.encoder
       enc_cfg = (
@@ -637,6 +641,15 @@ class T5GemmaEncoder(BaseEncoder):
     if freeze_weights:
       for param in self.encoder.parameters():
         param.requires_grad = False
+
+    # Zero out residual dropouts; keep only FFN internal dropout.
+    # Both v1 and v2 use T5Gemma(2)EncoderLayer with .layers and .dropout.
+    if hasattr(self.encoder, "text_model"):  # T5Gemma v2.
+      layers = self.encoder.text_model.layers
+    else:  # T5Gemma v1.
+      layers = self.encoder.layers
+    for layer in layers:
+      layer.dropout.p = 0.0  # Residual dropout (shared by both sub-layers).
 
   def forward(
       self, src_ids: torch.Tensor, src_key_padding_mask: torch.Tensor | None
@@ -696,6 +709,7 @@ class EncoderType(enum.Enum):
           vocab_size=vocab_size,
           d_model=d_model,
           num_layers=num_layers,
+          max_len=max_encoder_len,
           **encoder_kwargs,
       )
     elif self is EncoderType.T5GEMMA:

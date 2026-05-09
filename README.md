@@ -1,4 +1,4 @@
-# RegressLM: Easy Text-to-Text Regression
+# RegressLM: Easy Sequence-to-Sequence Regression
 [![Continuous Integration](https://github.com/google-deepmind/regress-lm/actions/workflows/core_test.yml/badge.svg)](https://github.com/google-deepmind/regress-lm/actions?query=branch%3Amain)
 
   [**Google Research Blog**](https://research.google/blog/simulating-large-systems-with-regression-language-models/)
@@ -12,9 +12,9 @@ Wongpanich, Dara Bahri, Michal Lukasik, Jiyoun Ha, Adrian N. Reyes, and Bryan
 Lewandowski.
 
 ## Overview
-RegressLM is a library for text-to-text regression, applicable to any input
-string representation and allows pretraining and fine-tuning over multiple
-regression tasks.
+RegressLM is a library for sequence-to-sequence regression, applicable to input
+string + image representations and allows pretraining and fine-tuning over
+multiple regression tasks.
 
 <figure>
 <p align="center" width=65%>
@@ -144,12 +144,9 @@ If you find this project useful, please consider citing the relevant works:
 @article{code_rlm,
       title={Regression Language Models for Code},
       author={Yash Akhauri and Xingyou Song and Arissa Wongpanich and Bryan Lewandowski and Mohamed S. Abdelfattah},
-      year={2025},
-      eprint={2509.26476},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2509.26476},
-      journal={arXiv preprint arXiv:2509.26476},
+      booktitle={International Conference on Machine Learning},
+      series={Proceedings of Machine Learning Research},
+      year={2026},
 }
 
 @article{performance_prediction,

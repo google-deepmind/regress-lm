@@ -14,6 +14,7 @@
 
 """PyTorch implementation of a local finetuner."""
 
+import dataclasses
 import math
 from typing import Callable, Iterator, Sequence, cast
 import peft
@@ -75,6 +76,17 @@ NamedParameters = optimizers_lib.NamedParameters
 DEFAULT_LORA_TARGET_MODULES = "all-linear"
 
 
+@dataclasses.dataclass(frozen=True)
+class EpochState:
+  """Snapshot of fine-tuner state after one epoch, passed to callbacks."""
+
+  epoch: int
+  val_loss: float
+  best_val_loss: float
+  is_best: bool
+  model: nn.Module  # Reference to the target model for state_dict() access.
+
+
 class PyTorchFineTuner(core.FineTuner):
   """Performs standard full fine-tuning, updating all model weights in-place."""
 
@@ -87,6 +99,7 @@ class PyTorchFineTuner(core.FineTuner):
       batch_size: int | None = None,
       batch_size_per_device: int | None = None,
       patience: int | None = 1,
+      max_steps_per_epoch: int | None = None,
       # LoRA-specific args.
       use_lora: bool = False,
       lora_r: int = 8,
@@ -107,6 +120,10 @@ class PyTorchFineTuner(core.FineTuner):
         will be used automatically.
       patience: The number of epochs to wait for improvement before early
         stopping. If None, early stopping is disabled.
+      max_steps_per_epoch: Maximum gradient updates per epoch. If None, uses the
+        full dataset. Setting this turns each "epoch" into a fixed-size training
+        interval, useful for large datasets where a full pass takes too long
+        between validation/checkpointing.
       use_lora: Performs PEFT using LoRA.
       lora_r: The rank of LoRA.
       lora_alpha: The alpha of LoRA.
@@ -119,6 +136,7 @@ class PyTorchFineTuner(core.FineTuner):
     self.batch_size = batch_size
     self.batch_size_per_device = batch_size_per_device
     self.patience = patience
+    self.max_steps_per_epoch = max_steps_per_epoch
 
     if use_lora:
       self.lora_config = peft.LoraConfig(
@@ -145,8 +163,18 @@ class PyTorchFineTuner(core.FineTuner):
       examples: Sequence[core.Example],
       validation_examples: Sequence[core.Example] | None = None,
       seed: int | None = None,
+      epoch_end_callback: Callable[[EpochState], None] | None = None,
   ) -> None:
-    """Fine-tunes the model using the provided examples."""
+    """Fine-tunes the model using the provided examples.
+
+    Args:
+      examples: Training examples.
+      validation_examples: Validation examples for early stopping. If None, uses
+        training examples.
+      seed: Random seed for data shuffling.
+      epoch_end_callback: Optional callback called after each epoch with an
+        `EpochState` snapshot. Useful for checkpointing or logging.
+    """
     validation_examples = validation_examples or examples
 
     g = torch.Generator()
@@ -159,6 +187,10 @@ class PyTorchFineTuner(core.FineTuner):
       micro_batch_size = min(effective_batch_size, self.batch_size_per_device)
     grad_acc_steps = math.ceil(effective_batch_size / micro_batch_size)
     num_updates_per_epoch = math.ceil(len(examples) / effective_batch_size)
+    if self.max_steps_per_epoch is not None:
+      num_updates_per_epoch = min(
+          num_updates_per_epoch, self.max_steps_per_epoch
+      )
 
     train_tensors = self.target_model.converter.convert_examples(examples)
     valid_tensors = self.target_model.converter.convert_examples(
@@ -186,12 +218,21 @@ class PyTorchFineTuner(core.FineTuner):
     initial_val_loss = self._run_validation_epoch(valid_dl)
     tracker.update(initial_val_loss, self.target_model)
 
-    for _ in range(self.max_epochs):
+    for epoch in range(self.max_epochs):
       self._run_training_epoch(
           train_iter, num_updates_per_epoch, grad_acc_steps
       )
       val_loss = self._run_validation_epoch(valid_dl)
       tracker.update(val_loss, self.target_model)
+      if epoch_end_callback is not None:
+        state = EpochState(
+            epoch=epoch,
+            val_loss=val_loss,
+            best_val_loss=tracker.best_loss,
+            is_best=val_loss < tracker.best_loss,
+            model=self.target_model,
+        )
+        epoch_end_callback(state)
       if tracker.should_stop():
         break
 
