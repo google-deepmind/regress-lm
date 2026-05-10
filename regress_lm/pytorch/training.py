@@ -16,6 +16,8 @@
 
 import collections
 import contextlib
+import logging
+import threading
 from typing import Any, Callable, Iterator
 import numpy as np
 from regress_lm import core
@@ -78,6 +80,18 @@ def cycle_dataloader(dataloader: utils.data.DataLoader[core.Example]):
     epoch += 1
 
 
+def _copy_state_to_cpu(state: Any) -> Any:
+  """Recursively clones and moves PyTorch tensors in nested dicts/lists to CPU."""
+  if isinstance(state, torch.Tensor):
+    return state.detach().cpu().clone()
+  elif isinstance(state, dict):
+    return {k: _copy_state_to_cpu(v) for k, v in state.items()}
+  elif isinstance(state, list):
+    return [_copy_state_to_cpu(v) for v in state]
+  else:
+    return state
+
+
 class Trainer:
   """RegressLM large-scale training process, including distributed cases."""
 
@@ -121,6 +135,7 @@ class Trainer:
     )
     self._scheduler = scheduler_factory(self._optimizer)
     self._global_step = 0
+    self._ckpt_thread = None
 
     # Create dataloaders for training and validation.
     train_is_iter = isinstance(train_ds, utils.data.IterableDataset)
@@ -237,7 +252,15 @@ class Trainer:
       save_fn: Callable[[dict[str, Any], str], None] = torch.save,
       extra_state: dict[str, Any] | None = None,
   ) -> None:
-    """Saves the current training state to a checkpoint file."""
+    """Saves the current training state to a checkpoint file asynchronously."""
+
+    # If a previous checkpoint thread is still running, wait for it to finish.
+    if self._ckpt_thread is not None and self._ckpt_thread.is_alive():
+      logging.warning(
+          'Previous background checkpoint is still running. Waiting...'
+      )
+      self._ckpt_thread.join()
+
     state = {
         'model_state': self.model.state_dict(),
         'optimizer_state': self._optimizer.state_dict(),
@@ -245,7 +268,13 @@ class Trainer:
         'global_step': self._global_step,
     }
     state.update(extra_state or {})
-    save_fn(state, checkpoint_path)
+
+    # Copy state dict to CPU and perform saving in a background thread.
+    cpu_state = _copy_state_to_cpu(state)
+    self._ckpt_thread = threading.Thread(
+        target=lambda: save_fn(cpu_state, checkpoint_path),
+    )
+    self._ckpt_thread.start()
 
   def load_checkpoint(self, checkpoint_path: str) -> dict[str, Any]:
     """Loads and returns the training state from a checkpoint file."""
