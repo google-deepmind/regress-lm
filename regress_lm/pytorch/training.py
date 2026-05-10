@@ -83,7 +83,7 @@ def cycle_dataloader(dataloader: utils.data.DataLoader[core.Example]):
 def _copy_state_to_cpu(state: Any) -> Any:
   """Recursively clones and moves PyTorch tensors in nested dicts/lists to CPU."""
   if isinstance(state, torch.Tensor):
-    return state.detach().cpu().clone()
+    return state.detach().cpu()
   elif isinstance(state, dict):
     return {k: _copy_state_to_cpu(v) for k, v in state.items()}
   elif isinstance(state, list):
@@ -254,12 +254,14 @@ class Trainer:
   ) -> None:
     """Saves the current training state to a checkpoint file asynchronously."""
 
-    # If a previous checkpoint thread is still running, wait for it to finish.
+    # If a previous checkpoint thread is still running, skip this save. Avoid
+    # blocking the other GPUs.
     if self._ckpt_thread is not None and self._ckpt_thread.is_alive():
       logging.warning(
-          'Previous background checkpoint is still running. Waiting...'
+          'Previous background checkpoint still saving. Skipping save to %s.',
+          checkpoint_path,
       )
-      self._ckpt_thread.join()
+      return
 
     state = {
         'model_state': self.model.state_dict(),
