@@ -135,7 +135,7 @@ class Trainer:
     )
     self._scheduler = scheduler_factory(self._optimizer)
     self._global_step = 0
-    self._ckpt_thread = None
+    self._ckpt_threads: dict[str, threading.Thread] = {}
 
     # Create dataloaders for training and validation.
     train_is_iter = isinstance(train_ds, utils.data.IterableDataset)
@@ -251,14 +251,17 @@ class Trainer:
       # In case more resilient checkpointing is needed with custom saving.
       save_fn: Callable[[dict[str, Any], str], None] = torch.save,
       extra_state: dict[str, Any] | None = None,
+      thread_name: str = 'default',
   ) -> None:
     """Saves the current training state to a checkpoint file asynchronously."""
 
-    # If a previous checkpoint thread is still running, skip this save. Avoid
-    # blocking the other GPUs.
-    if self._ckpt_thread is not None and self._ckpt_thread.is_alive():
+    # If a previous checkpoint thread with the same name is still running,
+    # skip this save to avoid blocking the other GPUs at dist.barrier().
+    prev = self._ckpt_threads.get(thread_name)
+    if prev is not None and prev.is_alive():
       logging.warning(
-          'Previous background checkpoint still saving. Skipping save to %s.',
+          'Background checkpoint [%s] still saving. Skipping save to %s.',
+          thread_name,
           checkpoint_path,
       )
       return
