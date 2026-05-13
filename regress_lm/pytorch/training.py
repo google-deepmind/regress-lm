@@ -136,6 +136,9 @@ class Trainer:
     self._scheduler = scheduler_factory(self._optimizer)
     self._global_step = 0
     self._ckpt_threads: dict[str, threading.Thread] = {}
+    self._acc_metrics: dict[str, torch.Tensor] = collections.defaultdict(
+        lambda: torch.tensor(0.0, device=self._model.device)
+    )
 
     # Create dataloaders for training and validation.
     train_is_iter = isinstance(train_ds, utils.data.IterableDataset)
@@ -226,21 +229,33 @@ class Trainer:
       loss /= self._grad_acc_steps
       loss.backward()
 
+    # Accumulate metrics on GPU across micro-batches (no CPU sync here).
+    for k, v in metrics.items():
+      self._acc_metrics[k] += v.detach()
+
     if is_update_step:
       self._optimizer.step()
       self._scheduler.step()
       self._optimizer.zero_grad(set_to_none=True)
 
+    if not is_update_step:
+      return {}  # Still accumulating micro-batches.
+
     if not return_metrics:
-      return {}  # Don't return metrics. Avoids GPU/CPU sync.
+      self._acc_metrics.clear()
+      return {}  # Caller doesn't need metrics. Avoids GPU/CPU sync.
+
+    # Average accumulated GPU tensors, then pull to CPU once.
+    avg = {k: v / self._grad_acc_steps for k, v in self._acc_metrics.items()}
+    self._acc_metrics.clear()
 
     if self._use_ddp:
-      for k in metrics:
-        metrics[k] = metrics[k].to(self._model.device, dtype=torch.float32)
-        dist.all_reduce(metrics[k], op=dist.ReduceOp.SUM)
-        metrics[k] /= dist.get_world_size()
+      for k in avg:
+        avg[k] = avg[k].to(self._model.device, dtype=torch.float32)
+        dist.all_reduce(avg[k], op=dist.ReduceOp.SUM)
+        avg[k] /= dist.get_world_size()
 
-    train_metrics = {f'train_{k}': v.item() for k, v in metrics.items()}
+    train_metrics = {f'train_{k}': v.item() for k, v in avg.items()}
     train_metrics['train_perplexity'] = np.exp(train_metrics['train_loss_mean'])
     train_metrics['learning_rate'] = self._optimizer.param_groups[0]['lr']
     return train_metrics
