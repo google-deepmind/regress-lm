@@ -139,6 +139,7 @@ class Trainer:
     self._acc_metrics: dict[str, torch.Tensor] = collections.defaultdict(
         lambda: torch.tensor(0.0, device=self._model.device)
     )
+    self._acc_count: int = 0
 
     # Create dataloaders for training and validation.
     train_is_iter = isinstance(train_ds, utils.data.IterableDataset)
@@ -211,9 +212,11 @@ class Trainer:
     return val_metrics
 
   def run_train_step(
-      self, batch: dict[str, torch.Tensor], return_metrics: bool = True
+      self,
+      batch: dict[str, torch.Tensor],
+      flush_metrics: bool = True,
   ) -> dict[str, float]:
-    """Runs train step and optionally returns metrics."""
+    """Runs train step and optionally returns accumulated metrics."""
     self._training_wrapper.train()
     self._global_step += 1
 
@@ -232,22 +235,19 @@ class Trainer:
     # Accumulate metrics on GPU across micro-batches (no CPU sync here).
     for k, v in metrics.items():
       self._acc_metrics[k] += v.detach()
+    self._acc_count += 1
 
     if is_update_step:
       self._optimizer.step()
       self._scheduler.step()
       self._optimizer.zero_grad(set_to_none=True)
 
-    if not is_update_step:
-      return {}  # Still accumulating micro-batches.
+    if not flush_metrics:
+      return {}
 
-    if not return_metrics:
-      self._acc_metrics.clear()
-      return {}  # Caller doesn't need metrics. Avoids GPU/CPU sync.
-
-    # Average accumulated GPU tensors, then pull to CPU once.
-    avg = {k: v / self._grad_acc_steps for k, v in self._acc_metrics.items()}
-    self._acc_metrics.clear()
+    # Flush: average all accumulated micro-batches, reset, return.
+    avg = {k: v / self._acc_count for k, v in self._acc_metrics.items()}
+    self._reset_acc_metrics()
 
     if self._use_ddp:
       for k in avg:
@@ -259,6 +259,11 @@ class Trainer:
     train_metrics['train_perplexity'] = np.exp(train_metrics['train_loss_mean'])
     train_metrics['learning_rate'] = self._optimizer.param_groups[0]['lr']
     return train_metrics
+
+  def _reset_acc_metrics(self) -> None:
+    for k in self._acc_metrics:
+      self._acc_metrics[k].zero_()
+    self._acc_count = 0
 
   def save_checkpoint(
       self,
