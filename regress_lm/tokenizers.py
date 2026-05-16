@@ -361,17 +361,22 @@ class NormalizedTokenizer(DecoderTokenizer[float]):
 class AddSpecialValues(DecoderTokenizer[str | float]):
   """Wraps a DecoderTokenizer to add special tokens."""
 
-  SPECIAL_VALUE_MAP = {
+  DEFAULT_SV_MAP = {
       'INVALID': 'INVALID',
       'NAN': math.nan,
       'INF': math.inf,
       'NINF': -math.inf,
   }
 
-  def __init__(self, tokenizer: DecoderTokenizer):
+  def __init__(
+      self,
+      tokenizer: DecoderTokenizer,
+      special_value_map: dict[str, str | float] | None = None,
+  ):
     self._tokenizer = tokenizer
+    self._special_value_map = special_value_map or self.DEFAULT_SV_MAP
     self._special_tokens = OrderedSet(
-        [_to_token(s) for s in self.SPECIAL_VALUE_MAP]
+        [_to_token(s) for s in self._special_value_map]
     )
 
   @property
@@ -403,14 +408,14 @@ class AddSpecialValues(DecoderTokenizer[str | float]):
       elif math.isinf(obj) and obj < 0:
         string = 'NINF'
 
-    if string is not None:
+    if string is not None and string in self._special_value_map:
       return [_to_token(string)] * self.num_tokens_per_obj
     return self._tokenizer.to_tokens(obj)
 
   def from_tokens(self, tokens: list[str], /) -> str | float:
     token = _from_token(tokens[0])
-    if token in self.SPECIAL_VALUE_MAP:
-      return self.SPECIAL_VALUE_MAP[token]
+    if token in self._special_value_map:
+      return self._special_value_map[token]
     return self._tokenizer.from_tokens(tokens)
 
 
