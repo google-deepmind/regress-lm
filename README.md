@@ -7,9 +7,7 @@
 | [**Extended Usage**](#extended_usage)
 | [**Citing**](#citing)
 
-**Xingyou Song**<sup>\*</sup>, **Yash Akhauri**<sup>\*</sup>, Arissa
-Wongpanich, Dara Bahri, Michal Lukasik, Jiyoun Ha, Adrian N. Reyes, and Bryan
-Lewandowski.
+**Core Contributors**: Xingyou Song, Yash Akhauri, Jiyoun Ha, Bryan Lewandowski
 
 ## Overview
 RegressLM is a library for sequence-to-sequence regression, applicable to input
