@@ -231,6 +231,8 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
     sign = '+' if f >= 0 else '-'
     abs_f = abs(f)
     exponent = math.floor(np.log(abs_f) / np.log(self.base)) if abs_f > 0 else 0
+    if abs_f > 0 and self.base ** (exponent + 1) <= abs_f:
+      exponent += 1  # Correct float imprecision at exact powers of base.
 
     exponent_sign = '+' if exponent >= 0 else '-'
     abs_exponent = abs(exponent)
