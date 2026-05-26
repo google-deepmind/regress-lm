@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import numpy as np
+from unittest import mock
 from regress_lm import core
 from regress_lm import rlm
 from absl.testing import absltest
@@ -34,6 +36,42 @@ class RlmTest(absltest.TestCase):
     samples1, samples2 = reg_lm.sample([query1, query2], num_samples=128)
     self.assertLen(samples1, 128)
     self.assertLen(samples2, 128)
+
+  def test_sample_forwards_temperature(self):
+    mock_model = mock.MagicMock()
+    mock_model.converter.convert_inputs.return_value = {'encoder_input': object()}
+    mock_model.decode.return_value = (
+        None,
+        np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32),
+    )
+    reg_lm = rlm.RegressLM(mock_model)
+
+    output = reg_lm.sample(
+        [core.ExampleInput(x='hello')], num_samples=3, temperature=0.5
+    )
+
+    self.assertLen(output, 1)
+    np.testing.assert_array_equal(
+      output[0], np.array([[1.0], [2.0], [3.0]], dtype=np.float32)
+    )
+    mock_model.decode.assert_called_once_with(
+        {'encoder_input': mock.ANY}, 3, temperature=0.5
+    )
+
+  def test_sample_uses_default_temperature(self):
+    mock_model = mock.MagicMock()
+    mock_model.converter.convert_inputs.return_value = {'encoder_input': object()}
+    mock_model.decode.return_value = (
+        None,
+        np.array([[[1.0], [2.0]]], dtype=np.float32),
+    )
+    reg_lm = rlm.RegressLM(mock_model)
+
+    reg_lm.sample([core.ExampleInput(x='hello')], num_samples=2)
+
+    mock_model.decode.assert_called_once_with(
+        {'encoder_input': mock.ANY}, 2, temperature=1.0
+    )
 
 
 if __name__ == '__main__':
