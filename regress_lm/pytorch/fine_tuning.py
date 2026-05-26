@@ -101,7 +101,7 @@ class PyTorchFineTuner(core.FineTuner):
       patience: int | None = 1,
       max_steps_per_epoch: int | None = None,
       # LoRA-specific args.
-      use_lora: bool = False,
+      use_lora: bool = True,
       lora_r: int = 8,
       lora_alpha: int = 16,
       lora_dropout: float = 0.0,
