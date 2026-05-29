@@ -18,6 +18,9 @@ dependencies = [
     "torch",
 ]
 
+[tool.setuptools.packages.find]
+include = ["regress_lm", "regress_lm.*"]
+
 [project.optional-dependencies]
 extras = [
     "transformers",  # for T5Gemma model.
