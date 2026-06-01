@@ -37,8 +37,24 @@ class StructuredTextVocabTest(absltest.TestCase):
     )
     self.assertEqual(vocab.pad_id, 0)
     self.assertLen(vocab, 10)
-    # TODO: pre_tokenizer is being completely ignored here.
-    self.assertEqual(vocab.to_token_ids("{abc:xyz,xyz:abc}"), [1])
+    # Now that pre_tokenizer works, it splits correctly on ':' and isolates it.
+    self.assertEqual(vocab.to_token_ids("{abc:xyz,xyz:abc}"), [1, 7, 1, 7, 1])
+
+  def test_default_split_regex(self):
+    vocab = vocabs.StructuredTextVocab(
+        tokens=["{", "}", "[", "]", ",", ":", "abc", "xyz"],
+    )
+    self.assertEqual(vocab.pad_id, 0)
+    self.assertLen(vocab, 10)
+    # The default split_regex splits and isolates punctuation and whitespace correctly
+    self.assertEqual(
+        vocab.to_token_ids("{abc:xyz,xyz:abc}"),
+        [2, 8, 7, 9, 6, 9, 7, 8, 3],
+    )
+    self.assertEqual(
+        vocab.to_token_ids("{ abc : xyz }"),
+        [2, 8, 7, 9, 3],
+    )
 
 
 class SentencePieceVocabTest(absltest.TestCase):
