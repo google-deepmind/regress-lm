@@ -1,0 +1,5 @@
+title: "Quantitative Inductive Machines"
+description: "Quantitative Inductive Machines (QIM): Sequence-to-sequence regression with language models."
+theme: jekyll-theme-cayman
+baseurl: "/regress-lm"
+url: "https://google-deepmind.github.io"
