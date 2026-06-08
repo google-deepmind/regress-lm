@@ -1,7 +1,7 @@
 ---
 layout: default
 title: "Quantitative Inductive Machines"
-description: "Quantitative Inductive Machines (QIM): Easy sequence-to-sequence regression with language models, for scientific and engineering applications."
+description: "Decoding the Quantitative World from Any Observation"
 ---
 
 <style>
@@ -269,9 +269,7 @@ MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } };
 Given an observation of a complex system, **what number(s) will it produce?**
 <img class="teaser-gif" src="assets/intro.jpeg" alt="QIM Introduction">
 
-<!-- Replace with slide table?
-This question always arises across science and engineering. For example:
-
+<!-- Make it a 10 = 2x5 to express the huge range?
 * What accuracy will my ML experiment code reach?
 * How many milliseconds will my custom GPU kernel run?
 * How efficient is this data center?
@@ -279,18 +277,19 @@ This question always arises across science and engineering. For example:
 * What is the survival prognosis for this patient with cancer?
 -->
 
-Historically, entire fields have traditionally resorted to _tabular regression_, which represents all worldly information as tables, or precisely, normalized fixed-dimensional vectors. But the world isn't a table, and tabular methods can't be applied to code, logs, or free-form text, which possesses arbitrary _sequence_ lengths.
+Historically, entire fields have traditionally resorted to _tabular regression_, which represents all information as tables, or precisely, normalized fixed-dimensional vectors. But the world isn't a table, and tabular methods can't be applied to code, logs, or free-form text, which possesses arbitrary _sequence_ lengths.
 
-We instead represent numeric prediction as a **sequence-to-sequence transduction** problem.
+We instead represent numeric prediction as a **sequence-to-sequence** problem.
 
 ## Method Overview
-An encoder-decoder converts tokens to tokens, from one information space (the raw observations of the world) into another, the spaces of all real numbers. Inputs $x$ can be represented as-is, and output numbers $y$ can stay unnormalized:
+An encoder-decoder converts, or _transduces_, from the space of all observations into another: the space of all real numbers. By:
 
-* By using **cross-attention** (instead of compressive embeddings attached to a tabular head), information is preserved and even allows approximating any _computable function._
-* By training with **cross-entropy** loss over numeric targets, we smoothly learn any density $p(y \mid x)$ to express epistemic and aleatoric uncertainty properly.
-* By applying at scale, we can perform enormous amounts of transfer-learning over any (x,y) data pairs.
+* Expressing **token-by-token**, input observations $x$ can be represented as-is, and output numbers $y$ can stay unnormalized.
+* Using **cross-attention** (instead of compressive embeddings attached to a tabular head), information is preserved and even allows approximating any _computable function._
+* Training with **cross-entropy** loss over numeric targets, we smoothly learn any density $p(y \mid x)$ to express epistemic and aleatoric uncertainty properly.
+* Scaling up and fine-tuning, we can perform enormous amounts of **transfer-learning** over any $(x,y)$ data pairs.
 
-At inference, decoding numbers essentially allows us to perform intuitive, or _inductive reasoning_ about the world.
+At inference, decoding numbers allows us to perform intuitive, or _inductive reasoning_ about the world.
 
 <img class="teaser-gif" src="assets/method_preview.jpeg" alt="Method Preview">
 
@@ -309,46 +308,61 @@ At inference, decoding numbers essentially allows us to perform intuitive, or _i
         </div>
         <div class="stage-description" onclick="showStage(2)">
             <h3>Simplifying Neural Architecture Search</h3>
-            <p>Zero expertise needed, still achieve 48% against SoTA</p>
+            <p>Zero expertise needed, achieve 48% against SoTA</p>
         </div>
         <div class="stage-description" onclick="showStage(3)">
-            <h3>GPU Kernel Latency and Optimization</h3>
+            <h3>GPU Kernel Optimization</h3>
             <p>16-100x fewer trials needed</p>
         </div>
         <div class="stage-description" onclick="showStage(4)">
-            <h3>Static Analysis</h3>
+            <h3>Static Analysis for Memory</h3>
             <p>24+ different languages covered</p>
         </div>
         <div class="stage-description" onclick="showStage(5)">
             <h3>CPU Microarchitecture Simulation</h3>
-            <p>Explore</p>
+            <p>Explore $10^{20}$ hardware configurations quickly</p>
         </div>
         <div class="stage-description" onclick="showStage(6)">
             <h3>TPU Pareto Frontier Generation</h3>
-            <p>Pareto Frontiers for TPU Co-Design</p>
+            <p>Latency + throughput tradeoffs for TPU co-design</p>
         </div>
         <div class="stage-description" onclick="showStage(7)">
-            <h3>Data Center Efficiency Prediction</h3>
-            <p>From raw telemetry logs</p>
+            <h3>Data Center Efficiency</h3>
+            <p>Prediction from raw telemetry logs</p>
         </div>
         <div class="stage-description" onclick="showStage(8)">
             <h3>Nuclear Fusion Surrogates</h3>
-            <p>First to predict from code</p>
+            <p>Novel inputs from raw code and configs</p>
         </div>
     </div>
     <div class="figure-col">
-        <!-- TODO: Replace placeholder images with actual figures -->
+        <!-- TODO: Replace images with powerpoint slides (consistent dimensions) -->
         <div class="figure-state active" onclick="openModal(this)">
-            <img src="assets/method_preview.jpeg" alt="Application 1: Performance Prediction">
+            <img src="assets/kaggle.png" alt="Application: ML Experiment Prediction from Code">
         </div>
         <div class="figure-state" onclick="openModal(this)">
-            <img src="assets/intro.jpeg" alt="Application 2: Code Regression">
+            <img src="assets/hpo.png" alt="Application: Hyperparameter Optimization">
         </div>
         <div class="figure-state" onclick="openModal(this)">
-            <img src="assets/method_preview.jpeg" alt="Application 3: Scientific Simulation">
+            <img src="assets/nas.png" alt="Application: Neural Architecture Search">
         </div>
         <div class="figure-state" onclick="openModal(this)">
-            <img src="assets/intro.jpeg" alt="Application 4: Healthcare Prognosis">
+            <img src="assets/gpu_kernel.png" alt="Application: GPU Kernel Optimization">
+        </div>
+        <div class="figure-state" onclick="openModal(this)">
+            <img src="assets/static_analysis.png" alt="Application: Static Analysis">
+        </div>
+        <div class="figure-state" onclick="openModal(this)">
+            <img src="assets/cpu.png" alt="Application: CPU Microarchitecture Simulation">
+        </div>
+        <div class="figure-state" onclick="openModal(this)">
+            <img src="assets/pareto.png" alt="Application: Pareto Frontier Prediction">
+        </div>
+        <div class="figure-state" onclick="openModal(this)">
+            <img src="assets/datacenter.png" alt="Application: Data Center Efficiency">
+        </div>
+        <div class="figure-state" onclick="openModal(this)">
+            <img src="assets/fusion.png" alt="Application: Nuclear Fusion Surrogates">
         </div>
     </div>
 </div>
@@ -364,7 +378,6 @@ At inference, decoding numbers essentially allows us to perform intuitive, or _i
 If you find this work useful, please cite:
 
 <div class="bibtex-box">
-<!-- TODO: Update with actual Nature citation -->
 @article{todo,
     title={TODO},
     author={TODO},
