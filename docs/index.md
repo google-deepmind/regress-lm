@@ -6,6 +6,9 @@ description: "Decoding the Quantitative World from Any Observation"
 
 <style>
     /* --- HEADER STYLES --- */
+    .page-header .btn {
+        display: none !important;
+    }
     .page-header {
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
         padding: 4rem 2rem;
@@ -107,16 +110,18 @@ description: "Decoding the Quantitative World from Any Observation"
     .static-wrapper {
         display: flex;
         flex-direction: row;
-        height: 50vh;
-        min-height: 450px;
-        max-height: 650px;
+        height: 480px;
         background-color: #ffffff;
         border: 1px solid #ddd;
         border-radius: 8px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.08);
         overflow: hidden;
-        width: 100%;
-        margin: 30px 0;
+        width: 90vw;
+        max-width: 1300px;
+        position: relative;
+        left: 50%;
+        transform: translateX(-50%);
+        margin: 40px auto;
     }
     .text-col {
         flex: 1;
@@ -163,7 +168,7 @@ description: "Decoding the Quantitative World from Any Observation"
         line-height: 1.5;
     }
     .figure-col {
-        flex: 2;
+        flex: 3;
         position: relative;
         background-color: #fff;
         overflow: hidden;
@@ -178,15 +183,16 @@ description: "Decoding the Quantitative World from Any Observation"
         display: flex;
         justify-content: center;
         align-items: center;
-        padding: 20px;
+        padding: 15px;
+        box-sizing: border-box;
     }
     .figure-state.active {
         opacity: 1;
         pointer-events: auto;
     }
     .figure-state img {
-        max-width: 100%;
-        max-height: 100%;
+        width: 100%;
+        height: 100%;
         object-fit: contain;
         box-shadow: none;
         border-radius: 0;
@@ -234,7 +240,7 @@ description: "Decoding the Quantitative World from Any Observation"
             padding: 16px;
         }
         .stage-description { min-width: 220px; margin-right: 12px; }
-        .figure-col { height: 40vh; min-height: 300px; }
+        .figure-col { width: 100%; aspect-ratio: 16 / 9; height: auto; }
     }
 </style>
 
@@ -277,23 +283,33 @@ Given an observation of a complex system, **what number(s) will it produce?**
 * What is the survival prognosis for this patient with cancer?
 -->
 
-Historically, entire fields have traditionally resorted to _tabular regression_, which represents all information as tables, or precisely, normalized fixed-dimensional vectors. But the world isn't a table, and tabular methods can't be applied to code, logs, or free-form text, which possesses arbitrary _sequence_ lengths.
+Historically, entire fields have traditionally resorted to _tabular regression_ which represents all information as tables, or precisely, normalized fixed-dimensional vectors. But the world isn't a table. Tabular methods can't be applied to data possessing arbitrary _sequence_ lengths, such as code, logs, or free-form text.
 
 We instead represent numeric prediction as a **sequence-to-sequence** problem.
 
 ## Method Overview
-An encoder-decoder converts, or _transduces_, from the space of all observations into another: the space of all real numbers. By:
+An encoder-decoder converts, or _transduces_, from the space of all observations into another: the space of all real numbers.
+
+<img class="teaser-gif" src="assets/method_preview.jpeg" alt="Method Preview">
+
+By:
 
 * Expressing **token-by-token**, input observations $x$ can be represented as-is, and output numbers $y$ can stay unnormalized.
 * Using **cross-attention** (instead of compressive embeddings attached to a tabular head), information is preserved and even allows approximating any _computable function._
-* Training with **cross-entropy** loss over numeric targets, we smoothly learn any density $p(y \mid x)$ to express epistemic and aleatoric uncertainty properly.
+* Training with **cross-entropy** loss over numeric targets, we smoothly learn any (possibly multi-objective) density $p(y \mid x)$ to express epistemic and aleatoric uncertainty properly.
 * Scaling up and fine-tuning, we can perform enormous amounts of **transfer-learning** over any $(x,y)$ data pairs.
 
 At inference, decoding numbers allows us to perform intuitive, or _inductive reasoning_ about the world.
 
-<img class="teaser-gif" src="assets/method_preview.jpeg" alt="Method Preview">
+<img class="teaser-gif" src="assets/computational.png" alt="Computational Approximation and Density Estimation">
 
 ## Applications
+Across 10 different high-impact scientific and industrial problems spanning experimental design, code execution, healthcare, and physics, each application achieves at least one of:
+
+1. A completely new predictive capability unseen before.
+2. Zero feature engineering required yet outperform SoTA.
+3. Unified data scaling, where different data can be used in the same model.
+4. Near-perfect simulation accuracy, where relative error is extremely low.
 
 <!-- Interactive application viewer (disco_rl style) -->
 <div class="static-wrapper">
@@ -359,7 +375,7 @@ At inference, decoding numbers allows us to perform intuitive, or _inductive rea
             <img src="assets/pareto.png" alt="Application: Pareto Frontier Prediction">
         </div>
         <div class="figure-state" onclick="openModal(this)">
-            <img src="assets/datacenter.png" alt="Application: Data Center Efficiency">
+            <img src="assets/data_center.png" alt="Application: Data Center Efficiency">
         </div>
         <div class="figure-state" onclick="openModal(this)">
             <img src="assets/fusion.png" alt="Application: Nuclear Fusion Surrogates">
