@@ -254,14 +254,38 @@ MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } };
 
 <div class="text-center">
     <p class="authors">
-        <!-- TODO: Update author list -->
-        <b>Author 1</b><sup>1</sup>,
-        <b>Author 2</b><sup>1</sup>,
-        <b>Author 3</b><sup>1</sup>,
-        <b>Author 4</b><sup>1</sup>
+        <b>Xingyou Song</b><sup><b>1</b>,<b>†</b>,<b>*</b></sup>,
+        <b>Yash Akhauri</b><sup><b>2</b>,<b>3</b>,<b>†</b>,<b>*</b></sup>,
+        <b>Jiyoun Ha</b><sup><b>4</b>,<b>5</b>,<b>*</b></sup>,
+        <b>Bryan Lewandowski</b><sup><b>4</b>,<b>*</b></sup>,<br>
+        <b>David Smalling</b><sup><b>1</b></sup>,
+        <b>Jason Lowe-Power</b><sup><b>4</b></sup>,
+        <b>Jonathan Citrin</b><sup><b>1</b></sup>,
+        <b>David Lo</b><sup><b>4</b></sup>,
+        <b>Rami Cohen</b><sup><b>4</b></sup>,
+        <b>Julian Walker</b><sup><b>1</b></sup>,
+        <b>Lai Wei</b><sup><b>4</b></sup>,
+        <b>Subhashini Venugopalan</b><sup><b>2</b></sup>,
+        <b>Mohamed Abdelfattah</b><sup><b>3</b></sup>,
+        <b>Cheng-Hsi Lin</b><sup><b>4</b></sup>,
+        <b>Bartłomiej Wróblewski</b><sup><b>1</b></sup>,
+        <b>Suvinay Subramanian</b><sup><b>4</b></sup>,
+        <b>Daiyi Peng</b><sup><b>1</b></sup>,<br>
+        <b>Denny Zhou</b><sup><b>1</b></sup>,
+        <b>Ed Chi</b><sup><b>1</b></sup>,
+        <b>Quoc Le</b><sup><b>1</b></sup>,
+        <b>Jeff Dean</b><sup><b>1</b></sup>,
+        <b>Pushmeet Kohli</b><sup><b>1</b></sup>
     </p>
     <p class="affiliations">
-        <sup>1</sup>Google DeepMind
+        <sup>1</sup>Google DeepMind &nbsp;&nbsp;&nbsp;&nbsp;
+        <sup>2</sup>Google Research &nbsp;&nbsp;&nbsp;&nbsp;
+        <sup>3</sup>Cornell University &nbsp;&nbsp;&nbsp;&nbsp;
+        <sup>4</sup>Google &nbsp;&nbsp;&nbsp;&nbsp;
+        <sup>5</sup>Stanford University
+    </p>
+    <p class="author-notes" style="font-size: 0.9em; color: #555; margin-bottom: 20px;">
+        <sup><b>†</b></sup>Equal Lead. &nbsp;&nbsp;&nbsp;&nbsp; <sup><b>*</b></sup>Core Independent Contributor.
     </p>
 
     <div class="links">
@@ -339,8 +363,8 @@ Across 10 different high-impact scientific and industrial problems spanning expe
             <p>Explore $10^{20}$ hardware configurations quickly</p>
         </div>
         <div class="stage-description" onclick="showStage(6)">
-            <h3>TPU Pareto Frontier Generation</h3>
-            <p>Latency + throughput tradeoffs for TPU co-design</p>
+            <h3>TPU/LLM Pareto Frontier Generation</h3>
+            <p>Latency + throughput tradeoffs for TPU/LLM co-design</p>
         </div>
         <div class="stage-description" onclick="showStage(7)">
             <h3>Data Center Efficiency</h3>
@@ -349,6 +373,10 @@ Across 10 different high-impact scientific and industrial problems spanning expe
         <div class="stage-description" onclick="showStage(8)">
             <h3>Nuclear Fusion Surrogates</h3>
             <p>Novel inputs from raw code and configs</p>
+        </div>
+        <div class="stage-description" onclick="showStage(9)">
+            <h3>Cancer Survival Prediction</h3>
+            <p>Combine 9+ modalities into one model</p>
         </div>
     </div>
     <div class="figure-col">
@@ -380,6 +408,9 @@ Across 10 different high-impact scientific and industrial problems spanning expe
         <div class="figure-state" onclick="openModal(this)">
             <img src="assets/fusion.png" alt="Application: Nuclear Fusion Surrogates">
         </div>
+        <div class="figure-state" onclick="openModal(this)">
+            <img src="assets/medical.png" alt="Application: Cancer Survival Prediction">
+        </div>
     </div>
 </div>
 
@@ -388,6 +419,26 @@ Across 10 different high-impact scientific and industrial problems spanning expe
     <span id="modal-close">&times;</span>
     <img id="modal-img" src="" alt="Full-size figure">
 </div>
+
+## Code Availability
+
+Code can be found in the open-source package ([github.com/google-deepmind/regress-lm](https://github.com/google-deepmind/regress-lm)). The default model trains on a single H100 GPU with inputs of up to 32K tokens, and can be further made to run on consumer hardware by using single-layer encoders and decoders.
+
+We provide the following Colabs and pretrained checkpoints for flagship result demos:
+
+* **Synthetic Density:** [synthetic_density_demo.ipynb](https://github.com/google-deepmind/regress-lm/blob/main/colabs/synthetic_density_demo.ipynb).
+* **ML Experiments from Code (Kaggle):** [kaggle_demo.ipynb](https://github.com/google-deepmind/regress-lm/blob/main/colabs/kaggle_demo.ipynb).
+* **Triton GPU Kernels:** [triton_demo.ipynb](https://github.com/google-deepmind/regress-lm/blob/main/colabs/triton_demo.ipynb).
+
+Pretraining data sources are listed in the paper.
+
+## Acknowledgements
+
+We thank Chen Sun, Vinh Tran, Alexander Rush, Michael Brenner, Dara Bahri, Jonathan Lai, and Zhiyu Wei for early feedback, reviewing, and support of the manuscript.
+
+We further thank Chen Liang, Oscar Li, Fred Zhang, Xuezhi Wang, Erik Lin, Esteban Real, Bangding (Jeffrey) Yang, Jarrod Kahn, Yiding Jiang, Samuel Sokota, Yan (Bill) Huang, Victor Reis, Phitchaya Mangpo Phothilimthana, Jörg Bornschein, Tejas Karkhanis, Amir Yazdan Bakhsh, Sami Abu-El-Haija, Erik Lin, Tung Nguyen, Eric Tang, Arissa Wongpanich, Shane Gu, Yingjie Miao, Qiuyi Zhang, Uri Alon, Shao-Hua Sun, Kuang-Huei Lee, Adrian N. Reyes, Zi Wang, Xinyun Chen, Aviral Kumar, Ke Xue, Rong-Xi Tan, Chansoo Lee, Michal Lukasik, Sagi Perel, and Daniel Golovin for relevant discussions.
+
+We finally thank Parthasarathy Ranganathan, Amin Vahdat, Craig Donner, Martin Dixon, Shibl Mourad, Zoubin Ghahramani, Benoit Schillings for support.
 
 ## Citation
 
