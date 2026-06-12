@@ -1,24 +1,23 @@
-# RegressLM: Easy Sequence-to-Sequence Regression
+# RegressLM: Easy Sequence-to-Sequence Numeric Prediction
 [![Continuous Integration](https://github.com/google-deepmind/regress-lm/actions/workflows/core_test.yml/badge.svg)](https://github.com/google-deepmind/regress-lm/actions?query=branch%3Amain)
 
   [**Google Research Blog**](https://research.google/blog/simulating-large-systems-with-regression-language-models/)
 | [**Setup**](#setup)
 | [**Usage**](#usage)
 | [**Extended Usage**](#extended_usage)
-| [**Citing**](#citing)
 
 **Core Contributors**: Xingyou Song, Yash Akhauri, Jiyoun Ha, Bryan Lewandowski
 
 ## Overview
-RegressLM is a library for sequence-to-sequence regression, applicable to input
-string + image representations and allows pretraining and fine-tuning over
-multiple regression tasks.
+RegressLM is a library for sequence-to-sequence numeric prediction, applicable
+to tokenizable inputs (e.g. strings, images) and allows pretraining and
+fine-tuning over multiple tasks.
 
 <figure>
 <p align="center" width=65%>
 <img src="https://raw.githubusercontent.com/akhauriyash/figures_placeholder/refs/heads/main/teaser_rlm_compressed.gif" alt="RegressLM decoding a numerical performance metric from text."/>
   <br>
-  <figcaption style="text-align: center;"><em><b><a href="https://arxiv.org/abs/2506.21718">Example Application</a>: Directly regressing performance metrics from unstructured, textually represented system states from Google's massive compute clusters.</b></em></figcaption>
+  <figcaption style="text-align: center;"><em><b><a href="https://arxiv.org/abs/2506.21718">Example Application</a>: Directly predicting performance metrics from unstructured, textually represented system states from Google's massive compute clusters.</b></em></figcaption>
 </p>
 </figure>
 
@@ -39,7 +38,7 @@ pip install ".[extras]"
 There are two main stages: **inference** and **pretraining** (optional but
 recommended).
 
-## Inference
+### Inference
 The intended use-case is to import a RegressLM class, which can decode
 floating-point predictions from a given input, and also fine-tune against new
 data.
@@ -60,7 +59,7 @@ query1, query2 = core.ExampleInput(x='hi'), core.ExampleInput(x='bye')
 samples1, samples2 = reg_lm.sample([query1, query2], num_samples=128)
 ```
 
-## Pretraining
+### Pretraining
 To produce better initial checkpoints for transfer learning, we recommend
 the user pretrains over large amounts of their own training data. Example
 pseudocode with PyTorch:
@@ -97,7 +96,7 @@ config = PyTorchModelConfig(architecture_kwargs=dict(num_encoder_layers=12, num_
 
 ### Multi-objective Support
 The RLM can decode a concatenated sequence of tokens too, for multi-objective
-regression:
+prediction:
 
 ```python
 reg_lm = rlm.RegressLM.from_scratch(max_num_objs=2)
@@ -132,43 +131,6 @@ To support 100K+ input token lengths, alternative encoders (e.g.
 ```python
 architecture_kwargs = dict(encoder_type=EncoderType.MAMBA, additional_encoder_kwargs={'d_state': 128})
 architecture_kwargs = dict(encoder_type=EncoderType.PERFORMER, additional_encoder_kwargs={'num_features': 256})
-```
-
-## Citation <a name="citing"></a>
-
-If you find this project useful, please consider citing the relevant works:
-
-```
-@article{code_rlm,
-      title={Regression Language Models for Code},
-      author={Yash Akhauri and Xingyou Song and Arissa Wongpanich and Bryan Lewandowski and Mohamed S. Abdelfattah},
-      booktitle={International Conference on Machine Learning},
-      series={Proceedings of Machine Learning Research},
-      year={2026},
-}
-
-@article{performance_prediction,
-      title={Performance Prediction for Large Systems via Text-to-Text Regression},
-      author={Yash Akhauri and Bryan Lewandowski and Cheng-Hsi Lin and Adrian N. Reyes and Grant C. Forbes and Arissa Wongpanich and Bangding Yang and Mohamed S. Abdelfattah and Sagi Perel and Xingyou Song},
-      journal={arXiv preprint arXiv:2506.21718},
-      year={2025}
-}
-
-@article{omnipred,
-      title={OmniPred: Language Models as Universal Regressors},
-      author={Xingyou Song and Oscar Li and Chansoo Lee and Bangding Yang and Daiyi Peng and Sagi Perel and Yutian Chen},
-      journal={Trans. Mach. Learn. Res.},
-      year={2024},
-      url={https://openreview.net/forum?id=t9c3pfrR1X},
-}
-
-@article{decoding_regression,
-      title={Decoding-based Regression},
-      author={Xingyou Song and Dara Bahri},
-      journal={Trans. Mach. Learn. Res.},
-      year={2025},
-      url={https://openreview.net/forum?id=avUQ8jguxg},
-}
 ```
 
 **Disclaimer:** This is not an officially supported Google product.
