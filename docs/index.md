@@ -307,12 +307,12 @@ Given an observation of a complex system, **what number(s) will it produce?**
 * What is the survival prognosis for this patient with cancer?
 -->
 
-Historically, entire fields have traditionally resorted to _tabular regression_ which represents all information as tables, or precisely, normalized fixed-dimensional vectors. But the world isn't a table. Tabular methods can't be applied to data possessing arbitrary _sequence_ lengths, such as code, logs, or free-form text.
+Historically, entire fields have resorted to traditional _tabular regression_ which represents all information as tables, or precisely, normalized fixed-dimensional vectors. But the world isn't a table. Tabular methods can't be applied to data possessing arbitrary _sequence_ lengths, such as code, logs, or free-form text.
 
 We instead represent numeric prediction as a **sequence-to-sequence** problem.
 
 ## Method Overview
-An encoder-decoder converts, or _transduces_, from the space of all observations into another: the space of all real numbers.
+A compact encoder-decoder converts, or _transduces_, from the space of all observations into another: the space of all real numbers.
 
 <img class="teaser-gif" src="assets/method_preview.png" alt="Method Preview">
 
