@@ -84,7 +84,10 @@ class EpochState:
   val_loss: float
   best_val_loss: float
   is_best: bool
-  model: nn.Module  # Reference to the target model for state_dict() access.
+
+  # Reference to the target model for state_dict() access.
+  # repr=False hides from print().
+  model: nn.Module = dataclasses.field(repr=False)
 
 
 class PyTorchFineTuner(core.FineTuner):
@@ -163,7 +166,7 @@ class PyTorchFineTuner(core.FineTuner):
       examples: Sequence[core.Example],
       validation_examples: Sequence[core.Example] | None = None,
       seed: int | None = None,
-      epoch_end_callback: Callable[[EpochState], None] | None = None,
+      epoch_end_callback: Callable[[EpochState], None] | None = print,
   ) -> None:
     """Fine-tunes the model using the provided examples.
 
