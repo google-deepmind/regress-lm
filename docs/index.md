@@ -314,7 +314,7 @@ We instead represent numeric prediction as a **sequence-to-sequence** problem.
 ## Method Overview
 An encoder-decoder converts, or _transduces_, from the space of all observations into another: the space of all real numbers.
 
-<img class="teaser-gif" src="assets/method_preview.jpeg" alt="Method Preview">
+<img class="teaser-gif" src="assets/method_preview.png" alt="Method Preview">
 
 By:
 
