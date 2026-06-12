@@ -330,10 +330,10 @@ At inference, decoding numbers allows us to perform intuitive, or _inductive rea
 ## Applications
 Across 10 different high-impact scientific and industrial problems spanning experimental design, code execution, healthcare, and physics, each application achieves at least one of:
 
-1. A completely new predictive capability unseen before.
-2. Zero feature engineering required yet outperform SoTA.
-3. Unified data scaling, where different data can be used in the same model.
-4. Near-perfect simulation accuracy, where relative error is extremely low.
+1. A new predictive capability not previously demonstrated.
+2. Outperforms SoTA without domain-specific architecture or feature engineering.
+3. Near-perfect simulation with at orders of magnitude lower cost.
+4. Unified data scaling: Massive transfer-learning across different tasks.
 
 <!-- Interactive application viewer (disco_rl style) -->
 <div class="static-wrapper">
