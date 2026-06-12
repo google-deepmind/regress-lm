@@ -297,7 +297,7 @@ MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } };
 
 ## Intro
 Given an observation of a complex system, **what number(s) will it produce?**
-<img class="teaser-gif" src="assets/intro.jpeg" alt="QIM Introduction">
+<img class="teaser-gif" src="assets/intro.png" alt="QIM Introduction">
 
 <!-- Make it a 10 = 2x5 to express the huge range?
 * What accuracy will my ML experiment code reach?
