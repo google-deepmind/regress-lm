@@ -23,7 +23,6 @@ import transformers
 import sentencepiece as spp
 import sentencepiece as spt
 
-
 ObjectT = TypeVar("ObjectT")
 
 
@@ -155,23 +154,21 @@ class BasicEnglishVocab(EncoderVocab[str]):
 
 
 class StructuredTextVocab(EncoderVocab[str]):
-  """For structured text, ideal for custom formats like JSON or DSLs.
-
-  NOTE: Not working right now, pre_tokenizer is being completely ignored.
-  """
+  """For structured text, ideal for custom formats like JSON or DSLs."""
 
   def __init__(self, tokens: list[str], split_regex: str = r"([\{\}\[\]:,])"):
     specials = ["<pad>", "<unk>"]
-
     self.vocab = {token: i + len(specials) for i, token in enumerate(tokens)}
     self.vocab.update({special: i for i, special in enumerate(specials)})
-
     self.tokenizer = ht.Tokenizer(
         ht.models.WordLevel(vocab=self.vocab, unk_token="<unk>")
     )
-    pre_tokenizer = ht.pre_tokenizers.Split(
-        pattern=split_regex, behavior="isolated"
-    )
+    pre_tokenizer = ht.pre_tokenizers.Sequence([
+        ht.pre_tokenizers.WhitespaceSplit(),
+        ht.pre_tokenizers.Split(
+            pattern=ht.Regex(split_regex), behavior="isolated"
+        ),
+    ])
     self.tokenizer.pre_tokenizer = pre_tokenizer
 
   def to_token_ids(self, obj: str) -> list[int]:
