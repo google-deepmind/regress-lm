@@ -20,16 +20,15 @@ description: "Decoding the Quantitative World from Any Observation"
         font-size: 2.8rem;
     }
     .project-tagline {
+        display: inline-block;
+        font-style: italic;
         background-color: rgba(255, 255, 255, 0.1);
-        padding: 15px 25px;
+        padding: 15px 40px;
         margin-top: 20px;
         border-radius: 8px;
         color: #e0e0e0;
         font-size: 1.2rem;
         line-height: 1.6;
-        max-width: 750px;
-        margin-left: auto;
-        margin-right: auto;
         border: 1px solid rgba(255, 255, 255, 0.15);
         backdrop-filter: blur(5px);
     }
