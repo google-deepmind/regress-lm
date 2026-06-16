@@ -56,7 +56,7 @@ description: "Decoding the Quantitative World from Any Observation"
     .text-center { text-align: center; }
     .authors {
         font-size: 1.1em;
-        margin-bottom: 10px;
+        margin: 0 -50px 10px -50px;
         line-height: 1.8;
     }
     .affiliations {
@@ -254,10 +254,12 @@ MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } };
 
 <div class="text-center">
     <p class="authors">
-        <b>Xingyou Song</b><sup><b>1</b>,<b>†</b>,<b>*</b></sup>,
-        <b>Yash Akhauri</b><sup><b>2</b>,<b>3</b>,<b>†</b>,<b>*</b></sup>,
-        <b>Jiyoun Ha</b><sup><b>4</b>,<b>5</b>,<b>*</b></sup>,
-        <b>Bryan Lewandowski</b><sup><b>4</b>,<b>*</b></sup>,<br>
+        <span style="white-space: nowrap;">
+            <b>Xingyou (Richard) Song</b><sup><b>1</b>,<b>†</b>,<b>*</b></sup>,
+            <b>Yash Akhauri</b><sup><b>2</b>,<b>3</b>,<b>†</b>,<b>*</b></sup>,
+            <b>Jiyoun (Jen) Ha</b><sup><b>4</b>,<b>5</b>,<b>*</b></sup>,
+            <b>Bryan Lewandowski</b><sup><b>4</b>,<b>*</b></sup>,
+        </span><br>
         <b>David Smalling</b><sup><b>1</b></sup>,
         <b>Jason Lowe-Power</b><sup><b>4</b></sup>,
         <b>Jonathan Citrin</b><sup><b>1</b></sup>,
@@ -271,11 +273,13 @@ MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } };
         <b>Bartłomiej Wróblewski</b><sup><b>1</b></sup>,
         <b>Suvinay Subramanian</b><sup><b>4</b></sup>,
         <b>Daiyi Peng</b><sup><b>1</b></sup>,<br>
-        <b>Denny Zhou</b><sup><b>1</b></sup>,
-        <b>Ed Chi</b><sup><b>1</b></sup>,
-        <b>Quoc Le</b><sup><b>1</b></sup>,
-        <b>Jeff Dean</b><sup><b>1</b></sup>,
-        <b>Pushmeet Kohli</b><sup><b>1</b></sup>
+        <span style="white-space: nowrap;">
+            <b>Denny Zhou</b><sup><b>1</b></sup>,
+            <b>Ed Chi</b><sup><b>1</b></sup>,
+            <b>Quoc Le</b><sup><b>1</b></sup>,
+            <b>Jeff Dean</b><sup><b>1</b></sup>,
+            <b>Pushmeet Kohli</b><sup><b>1</b></sup>
+        </span>
     </p>
     <p class="affiliations">
         <sup>1</sup>Google DeepMind &nbsp;&nbsp;&nbsp;&nbsp;
@@ -297,7 +301,7 @@ MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } };
 
 ## Intro
 Given an observation of a complex system, **what number(s) will it produce?**
-<img class="teaser-gif" src="assets/intro.jpeg" alt="QIM Introduction">
+<img class="teaser-gif" src="assets/intro.png" alt="QIM Introduction">
 
 <!-- Make it a 10 = 2x5 to express the huge range?
 * What accuracy will my ML experiment code reach?
@@ -434,11 +438,11 @@ Pretraining data sources are listed in the paper.
 
 ## Acknowledgements
 
-We thank Chen Sun, Vinh Tran, Alexander Rush, Michael Brenner, Dara Bahri, Jonathan Lai, and Zhiyu Wei for early feedback, reviewing, and support of the manuscript.
+We thank Yutian Chen, Chen Sun, Vinh Tran, Alexander Rush, Michael Brenner, Dara Bahri, Yifeng Lu, Jonathan Lai, and Zhiyu Wei for early feedback, reviewing, and support of the manuscript.
 
 We further thank Chen Liang, Oscar Li, Fred Zhang, Xuezhi Wang, Erik Lin, Esteban Real, Bangding (Jeffrey) Yang, Jarrod Kahn, Yiding Jiang, Samuel Sokota, Yan (Bill) Huang, Victor Reis, Phitchaya Mangpo Phothilimthana, Jörg Bornschein, Tejas Karkhanis, Amir Yazdan Bakhsh, Sami Abu-El-Haija, Erik Lin, Tung Nguyen, Eric Tang, Arissa Wongpanich, Shane Gu, Yingjie Miao, Qiuyi Zhang, Uri Alon, Shao-Hua Sun, Kuang-Huei Lee, Adrian N. Reyes, Zi Wang, Xinyun Chen, Aviral Kumar, Ke Xue, Rong-Xi Tan, Chansoo Lee, Michal Lukasik, Sagi Perel, and Daniel Golovin for relevant discussions.
 
-We finally thank Parthasarathy Ranganathan, Amin Vahdat, Craig Donner, Martin Dixon, Shibl Mourad, Zoubin Ghahramani, Benoit Schillings for support.
+We finally thank Parthasarathy Ranganathan, Amin Vahdat, Craig Donner, Martin Dixon, Shibl Mourad, Zoubin Ghahramani, and Benoit Schillings for support.
 
 ## Citation
 

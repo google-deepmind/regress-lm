@@ -1,14 +1,14 @@
 # RegressLM: Easy Sequence-to-Sequence Numeric Prediction
 [![Continuous Integration](https://github.com/google-deepmind/regress-lm/actions/workflows/core_test.yml/badge.svg)](https://github.com/google-deepmind/regress-lm/actions?query=branch%3Amain)
 
-  [**Google Research Blog**](https://research.google/blog/simulating-large-systems-with-regression-language-models/)
+  [**Overview**](#overview)
 | [**Setup**](#setup)
 | [**Usage**](#usage)
 | [**Extended Usage**](#extended_usage)
 
 **Core Contributors**: Xingyou Song, Yash Akhauri, Jiyoun Ha, Bryan Lewandowski
 
-## Overview
+## Overview <a name="overview"></a>
 RegressLM is a library for sequence-to-sequence numeric prediction, applicable
 to tokenizable inputs (e.g. strings, images) and allows pretraining and
 fine-tuning over multiple tasks.
@@ -17,7 +17,7 @@ fine-tuning over multiple tasks.
 <p align="center" width=65%>
 <img src="https://raw.githubusercontent.com/akhauriyash/figures_placeholder/refs/heads/main/teaser_rlm_compressed.gif" alt="RegressLM decoding a numerical performance metric from text."/>
   <br>
-  <figcaption style="text-align: center;"><em><b><a href="https://arxiv.org/abs/2506.21718">Example Application</a>: Directly predicting performance metrics from unstructured, textually represented system states from Google's massive compute clusters.</b></em></figcaption>
+  <figcaption style="text-align: center;"><em><b><a href="https://research.google/blog/simulating-large-systems-with-regression-language-models/">Example Application</a>: Directly predicting performance metrics from unstructured, textually represented system states from Google's massive compute clusters.</b></em></figcaption>
 </p>
 </figure>
 
