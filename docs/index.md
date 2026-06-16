@@ -10,30 +10,35 @@ description: "Decoding the Quantitative World from Any Observation"
         display: none !important;
     }
     .page-header {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        padding: 4rem 2rem;
+        background: linear-gradient(rgba(15, 20, 35, 0.8), rgba(15, 20, 35, 0.85)), url('assets/banner.jpeg');
+        background-size: cover;
+        background-position: center center;
+        padding: 5rem 2rem;
     }
     .project-name {
         color: #ffffff;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        text-shadow: 0 2px 20px rgba(0,0,0,0.9), 0 0 40px rgba(0,0,0,0.5);
         margin-bottom: 10px;
         font-size: 2.8rem;
     }
     .project-tagline {
         display: inline-block;
         font-style: italic;
-        background-color: rgba(255, 255, 255, 0.1);
+        font-weight: 500;
+        background-color: rgba(255, 255, 255, 0.15);
         padding: 15px 40px;
         margin-top: 20px;
         border-radius: 8px;
-        color: #e0e0e0;
+        color: #ffffff;
         font-size: 1.2rem;
         line-height: 1.6;
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.25);
         backdrop-filter: blur(5px);
+        text-shadow: 0 1px 8px rgba(0,0,0,0.6);
     }
 
     /* --- GENERAL PAGE STYLES --- */
+
     strong, b {
         color: #000000;
         font-weight: 800;
