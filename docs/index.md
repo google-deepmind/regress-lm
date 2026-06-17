@@ -250,7 +250,7 @@ description: "Decoding the Quantitative World from Any Observation"
     @media (max-width: 768px) {
         .page-header {
             background-size: cover;
-            background-position: 25% center;
+            background-position: center center;
             padding: 3rem 1.5rem;
         }
         .authors {
