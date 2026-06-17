@@ -17,24 +17,22 @@ description: "Decoding the Quantitative World from Any Observation"
     }
     .project-name {
         color: #ffffff;
-        text-shadow: 0 2px 20px rgba(0,0,0,0.9), 0 0 40px rgba(0,0,0,0.5);
         margin-bottom: 10px;
         font-size: 2.8rem;
     }
     .project-tagline {
         display: inline-block;
         font-style: italic;
-        font-weight: 500;
-        background-color: rgba(255, 255, 255, 0.15);
+        font-weight: 600;
+        background-color: rgba(255, 255, 255, 0.22);
         padding: 15px 40px;
         margin-top: 20px;
         border-radius: 8px;
         color: #ffffff;
-        font-size: 1.2rem;
+        font-size: 1.25rem;
         line-height: 1.6;
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        backdrop-filter: blur(5px);
-        text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        backdrop-filter: blur(10px);
     }
 
     /* --- GENERAL PAGE STYLES --- */
@@ -62,6 +60,9 @@ description: "Decoding the Quantitative World from Any Observation"
         font-size: 1.1em;
         margin: 0 -50px 10px -50px;
         line-height: 1.8;
+    }
+    .author-group {
+        white-space: nowrap;
     }
     .affiliations {
         font-size: 0.95em;
@@ -246,6 +247,25 @@ description: "Decoding the Quantitative World from Any Observation"
         .stage-description { min-width: 220px; margin-right: 12px; }
         .figure-col { width: 100%; aspect-ratio: 16 / 9; height: auto; }
     }
+    @media (max-width: 768px) {
+        .page-header {
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center top;
+            background-color: #0a0f1e;
+            padding: 3rem 1.5rem;
+        }
+        .authors {
+            margin: 0 0 10px 0;
+            font-size: 1em;
+        }
+        .author-group {
+            white-space: normal;
+        }
+        .author-group b {
+            display: inline-block;
+        }
+    }
 </style>
 
 <!-- MathJax for LaTeX rendering -->
@@ -258,7 +278,7 @@ MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } };
 
 <div class="text-center">
     <p class="authors">
-        <span style="white-space: nowrap;">
+        <span class="author-group">
             <b>Xingyou (Richard) Song</b><sup><b>1</b>,<b>†</b>,<b>*</b></sup>,
             <b>Yash Akhauri</b><sup><b>2</b>,<b>3</b>,<b>†</b>,<b>*</b></sup>,
             <b>Jiyoun (Jen) Ha</b><sup><b>4</b>,<b>5</b>,<b>*</b></sup>,
@@ -277,7 +297,7 @@ MathJax = { tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] } };
         <b>Bartłomiej Wróblewski</b><sup><b>1</b></sup>,
         <b>Suvinay Subramanian</b><sup><b>4</b></sup>,
         <b>Daiyi Peng</b><sup><b>1</b></sup>,<br>
-        <span style="white-space: nowrap;">
+        <span class="author-group">
             <b>Denny Zhou</b><sup><b>1</b></sup>,
             <b>Ed Chi</b><sup><b>1</b></sup>,
             <b>Quoc Le</b><sup><b>1</b></sup>,
