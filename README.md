@@ -13,13 +13,11 @@ RegressLM is a library for sequence-to-sequence numeric prediction, applicable
 to tokenizable inputs (e.g. strings, images) and allows pretraining and
 fine-tuning over multiple tasks.
 
-<figure>
-<p align="center" width=65%>
-<img src="https://raw.githubusercontent.com/akhauriyash/figures_placeholder/refs/heads/main/teaser_rlm_compressed.gif" alt="RegressLM decoding a numerical performance metric from text."/>
+<p align="center">
+<img src="https://raw.githubusercontent.com/akhauriyash/figures_placeholder/refs/heads/main/teaser_rlm_compressed.gif" alt="RegressLM decoding a numerical performance metric from text." width="65%"/>
   <br>
-  <figcaption style="text-align: center;"><em><b><a href="https://research.google/blog/simulating-large-systems-with-regression-language-models/">Example Application</a>: Directly predicting performance metrics from unstructured, textually represented system states from Google's massive compute clusters.</b></em></figcaption>
+  <em><b><a href="https://research.google/blog/simulating-large-systems-with-regression-language-models/">Example Application</a>: Directly predicting performance metrics from unstructured, textually represented system states from Google's massive compute clusters.</b></em>
 </p>
-</figure>
 
 ## Setup <a name="setup"></a>
 Get started by installing the core libraries:
