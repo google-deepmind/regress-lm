@@ -14,7 +14,7 @@ to tokenizable inputs (e.g. strings, images) and allows pretraining and
 fine-tuning over multiple tasks.
 
 <p align="center">
-<img src="https://raw.githubusercontent.com/akhauriyash/figures_placeholder/refs/heads/main/teaser_rlm_compressed.gif" alt="RegressLM decoding a numerical performance metric from text." width="65%"/>
+<img src="https://raw.githubusercontent.com/akhauriyash/figures_placeholder/refs/heads/main/teaser_rlm_compressed.gif" alt="RegressLM decoding a numerical performance metric from text." width="100%"/>
   <br>
   <em><b><a href="https://research.google/blog/simulating-large-systems-with-regression-language-models/">Example Application</a>: Directly predicting performance metrics from unstructured, textually represented system states from Google's massive compute clusters.</b></em>
 </p>
