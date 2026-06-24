@@ -5,6 +5,7 @@
 | [**Setup**](#setup)
 | [**Usage**](#usage)
 | [**Extended Usage**](#extended_usage)
+| [**Colabs**](https://github.com/google-deepmind/regress-lm/tree/main/colabs)
 
 **Core Contributors**: Xingyou Song, Yash Akhauri, Jiyoun Ha, Bryan Lewandowski
 
