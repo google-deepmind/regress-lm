@@ -137,7 +137,7 @@ class ModelTest(parameterized.TestCase):
     tokenizer = tokenizers.AddSpecialValues(tokenizers.P10Tokenizer())
     cfg = dataclasses.replace(
         self.cfg,
-        decoder_vocab=vocabs.DecoderVocab(tokenizer),
+        decoder_vocab=vocabs.DecoderVocab(tokenizer),  # pyrefly: ignore[bad-argument-type]
         max_input_len=4,
     )
     model = cfg.make_model()

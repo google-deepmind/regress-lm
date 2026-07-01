@@ -131,7 +131,7 @@ class Trainer:
       self._training_wrapper = torch.compile(self._training_wrapper)
 
     self._optimizer = optimizer_factory(
-        self._training_wrapper.named_parameters()
+        self._training_wrapper.named_parameters()  # pyrefly: ignore[bad-argument-type]
     )
     self._scheduler = scheduler_factory(self._optimizer)
     self._global_step = 0
@@ -172,7 +172,7 @@ class Trainer:
       additional metrics emitted by the model.
     """
     self._optimizer.zero_grad(set_to_none=True)  # Free up memory.
-    self._training_wrapper.eval()
+    self._training_wrapper.eval()  # pyrefly: ignore[missing-attribute]
 
     metric_sums: dict[str, torch.Tensor] = collections.defaultdict(
         lambda: torch.tensor(0.0)
@@ -180,13 +180,13 @@ class Trainer:
     total_items = torch.tensor(0)
 
     if self._use_ddp:  # Don't sync forward pass at validation.
-      no_sync_ctx = self._training_wrapper.no_sync()
+      no_sync_ctx = self._training_wrapper.no_sync()  # pyrefly: ignore[missing-attribute]
     else:
       no_sync_ctx = contextlib.nullcontext()
 
     with torch.no_grad(), no_sync_ctx:
       for val_batch in dl:
-        _, metrics = self._training_wrapper.forward(val_batch)
+        _, metrics = self._training_wrapper.forward(val_batch)  # pyrefly: ignore[missing-attribute]
         bsz = next(iter(val_batch.values())).size(0)
 
         for key, value_tensor in metrics.items():
@@ -217,17 +217,17 @@ class Trainer:
       flush_metrics: bool = True,
   ) -> dict[str, float]:
     """Runs train step and optionally returns accumulated metrics."""
-    self._training_wrapper.train()
+    self._training_wrapper.train()  # pyrefly: ignore[missing-attribute]
     self._global_step += 1
 
     is_update_step = self._global_step % self._grad_acc_steps == 0
     if self._use_ddp and not is_update_step:  # Don't sync on non-update steps.
-      context = self._training_wrapper.no_sync()
+      context = self._training_wrapper.no_sync()  # pyrefly: ignore[missing-attribute]
     else:
       context = contextlib.nullcontext()
 
     with context:
-      losses_per_example, metrics = self._training_wrapper.forward(batch)
+      losses_per_example, metrics = self._training_wrapper.forward(batch)  # pyrefly: ignore[missing-attribute]
       loss = losses_per_example.mean()
       loss /= self._grad_acc_steps
       loss.backward()
@@ -342,7 +342,7 @@ class Trainer:
 
   @property
   def training_wrapper(self) -> nn.Module:
-    return self._training_wrapper
+    return self._training_wrapper  # pyrefly: ignore[bad-return]
 
   @property
   def current_epoch(self) -> int | None:
