@@ -243,9 +243,9 @@ class AddSpecialValuesTest(parameterized.TestCase):
     if f_prime == 'INVALID':
       self.assertEqual(f_prime, 'INVALID')
     elif math.isnan(f):
-      self.assertTrue(math.isnan(f_prime))
+      self.assertTrue(math.isnan(f_prime))  # pyrefly: ignore[bad-argument-type]
     else:
-      self.assertAlmostEqual(f_prime, f)
+      self.assertAlmostEqual(f_prime, f)  # pyrefly: ignore[no-matching-overload]
 
   def test_all_tokens_used(self):
     self.assertEqual(

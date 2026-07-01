@@ -557,7 +557,7 @@ class PerformerEncoder(BaseEncoder):
     src = self.embedding(src_ids)
 
     if self.training and self.redraw_interval is not None:
-      self.training_calls += 1
+      self.training_calls += 1  # pyrefly: ignore[unsupported-operation]
       if self.training_calls.item() % self.redraw_interval == 0:
         for layer in self.layers:
           layer.redraw_projection_matrix(src.device)

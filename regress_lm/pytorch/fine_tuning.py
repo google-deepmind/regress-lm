@@ -151,11 +151,11 @@ class PyTorchFineTuner(core.FineTuner):
           else target_modules,
           bias="none",
       )
-      self.lora_wrapper = peft.get_peft_model(model, self.lora_config)
-      self.optimizer = optimizer_factory(self.lora_wrapper.named_parameters())
+      self.lora_wrapper = peft.get_peft_model(model, self.lora_config)  # pyrefly: ignore[bad-argument-type]
+      self.optimizer = optimizer_factory(self.lora_wrapper.named_parameters())  # pyrefly: ignore[bad-argument-type]
     else:
       self.lora_wrapper = None
-      self.optimizer = optimizer_factory(self.model.named_parameters())
+      self.optimizer = optimizer_factory(self.model.named_parameters())  # pyrefly: ignore[bad-argument-type]
 
   @property
   def target_model(self) -> nn.Module:
