@@ -171,7 +171,7 @@ class P10Tokenizer(DecoderTokenizer[float]):
 
     sign = -1 if primitives[0] == '-' else 1
     mantissa = int(''.join(map(str, primitives[1:-1])))
-    exp = int(''.join(primitives[-1]).lstrip('E'))
+    exp = int(''.join(primitives[-1]).lstrip('E'))  # pyrefly: ignore[no-matching-overload]
 
     return float(sign * mantissa * 10**exp)
 
