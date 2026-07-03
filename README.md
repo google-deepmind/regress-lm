@@ -3,9 +3,9 @@
 
   [**Overview**](#overview)
 | [**Setup**](#setup)
+| [**Colabs**](https://github.com/google-deepmind/regress-lm/tree/main/colabs)
 | [**Usage**](#usage)
 | [**Extended Usage**](#extended_usage)
-| [**Colabs**](https://github.com/google-deepmind/regress-lm/tree/main/colabs)
 
 **Core Contributors**: Xingyou Song, Yash Akhauri, Jiyoun Ha, Bryan Lewandowski
 
@@ -32,8 +32,17 @@ To run e.g. T5Gemma variants and LoRA fine-tuning, install additional libraries:
 ```
 pip install ".[extras]"
 ```
-Installation should take less than a minute. **Supported Platforms:** Requires
-Python 3.10+. Linux (e.g. Ubuntu) strongly preferred for deep learning.
+Installation should take less than a minute.
+
+**Supported Platforms:** Requires Python 3.10+. Linux (e.g. Ubuntu) strongly
+preferred for deep learning.
+
+## Colabs
+Example Colabs for getting started and demonstrating flagship results:
+
+* **Synthetic Density Training:** <a href="https://colab.research.google.com/github/google-deepmind/regress-lm/blob/main/colabs/synthetic_density_demo.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab" style="vertical-align: middle"></a>
+* **Triton GPU Kernel Latency Prediction:** <a href="https://colab.research.google.com/github/google-deepmind/regress-lm/blob/main/colabs/triton_demo.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab" style="vertical-align: middle"></a>
+* **Kaggle Experiment Outcome Prediction:** <a href="https://colab.research.google.com/github/google-deepmind/regress-lm/blob/main/colabs/kaggle_demo.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab" style="vertical-align: middle"></a>
 
 ## Usage <a name="usage"></a>
 There are two main stages: **inference** and **pretraining** (optional but
