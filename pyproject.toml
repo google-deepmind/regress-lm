@@ -15,7 +15,7 @@ dependencies = [
     "gcsfs",  # For downloading T5-vocabulary.
     "tokenizers",
     "sentencepiece",  # For default tokenization + creating custom vocabs.
-    "torch",
+    "torch>=2.2.0",  # Guarantees stable SDPA + native FlashAttention-2
 ]
 
 [tool.setuptools.packages.find]
@@ -23,7 +23,7 @@ include = ["regress_lm", "regress_lm.*"]
 
 [project.optional-dependencies]
 extras = [
-    "transformers",  # for T5Gemma model.
-    "peft",  # for LoRA fine-tuning.
+    "transformers>5.0.0",  # for T5Gemma-1 and 2 model.
+    "peft>=0.19.0",  # for LoRA fine-tuning.
     # "mamba-ssm[causal-conv1d]",  # for Mamba SSM model. cuda errors ATM.
 ]

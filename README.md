@@ -21,17 +21,19 @@ fine-tuning over multiple tasks.
 </p>
 
 ## Setup <a name="setup"></a>
-Get started by installing the core libraries:
+Get started by installing the core libraries ([dependencies](https://github.com/google-deepmind/regress-lm/blob/main/pyproject.toml)):
 
 ```
 pip install -e .
 ```
 
-To run e.g. T5Gemma variants, install additional libraries:
+To run e.g. T5Gemma variants and LoRA fine-tuning, install additional libraries:
 
 ```
 pip install ".[extras]"
 ```
+Installation should take less than a minute. **Supported Platforms:** Requires
+Python 3.10+. Linux (e.g. Ubuntu) strongly preferred for deep learning.
 
 ## Usage <a name="usage"></a>
 There are two main stages: **inference** and **pretraining** (optional but
