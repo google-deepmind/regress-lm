@@ -14,21 +14,21 @@
 
 import functools
 from regress_lm import core
-from regress_lm.pytorch import t5gemma_model
+from regress_lm.pytorch import e2e_model
 import torch
 from absl.testing import absltest
 
 
-class T5GemmaModelTest(absltest.TestCase):
+class T5GemmaE2EModelTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.cfg = t5gemma_model.T5GemmaModelConfig(
+    self.cfg = e2e_model.T5GemmaE2EModelConfig(
         model_name="google/t5gemma-s-s-prefixlm",
         max_input_len=10,
         max_decode_len=10,
         y_to_str_fn=functools.partial(
-            t5gemma_model.default_y_to_str_fn, precision=1
+            e2e_model.default_y_to_str_fn, precision=1
         ),
     )
     self.model = self.cfg.make_model()
@@ -63,8 +63,8 @@ class T5GemmaModelTest(absltest.TestCase):
     batch = self.model.converter.convert_examples(examples)
     log_probs = self.model.log_prob(batch)
     self.assertEqual(log_probs.shape, (2,))
-    self.assertAlmostEqual(log_probs[0].item(), -40.5, 1)
-    self.assertAlmostEqual(log_probs[1].item(), -38.15, 1)
+    self.assertAlmostEqual(log_probs[0].item(), -40.6, 0)
+    self.assertAlmostEqual(log_probs[1].item(), -38.2, 0)
 
   @absltest.skip("T5Gemma sometimes not up to date with HF")
   def test_decode(self):

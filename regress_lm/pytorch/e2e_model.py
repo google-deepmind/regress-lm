@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""T5Gemma wrapper."""
+"""End-to-end (E2E) models, where e.g. decoding is done natively."""
 
 import dataclasses
 import functools
@@ -41,8 +41,8 @@ def default_y_to_str_fn(ys: float | Sequence[float], precision: int = 4) -> str:
 
 
 @dataclasses.dataclass(frozen=True)
-class T5GemmaModelConfig:
-  """Configuration for creating a T5Gemma model and its data converter."""
+class T5GemmaE2EModelConfig:
+  """Configuration for creating a E2E T5Gemma model and its data converter."""
 
   model_name: str
   max_input_len: int = 2048
@@ -52,19 +52,19 @@ class T5GemmaModelConfig:
   model_kwargs: dict[str, Any] | None = None  # For T5Gemma kwargs.
   tokenizer_kwargs: dict[str, Any] | None = None  # For tokenizer kwargs.
 
-  def make_converter(self) -> 'T5GemmaConverter':
+  def make_converter(self) -> 'T5GemmaE2EConverter':
     """Factory method to create a data converter from this config."""
-    return T5GemmaConverter(config=self)
+    return T5GemmaE2EConverter(config=self)
 
-  def make_model(self) -> 'T5GemmaModel':
+  def make_model(self) -> 'T5GemmaE2EModel':
     """Factory method to create a model from this config."""
-    return T5GemmaModel(config=self)
+    return T5GemmaE2EModel(config=self)
 
 
-class T5GemmaConverter(core.Converter[Tensor]):
+class T5GemmaE2EConverter(core.Converter[Tensor]):
   """Converts high-level inputs and examples to batched low-level inputs."""
 
-  def __init__(self, config: T5GemmaModelConfig):
+  def __init__(self, config: T5GemmaE2EModelConfig):
     self.cfg = config
 
     self.tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -103,10 +103,10 @@ class T5GemmaConverter(core.Converter[Tensor]):
     return {'labels': labels, **self.convert_inputs(examples)}
 
 
-class T5GemmaModel(nn.Module, core.Model[Tensor]):
+class T5GemmaE2EModel(nn.Module, core.Model[Tensor]):
   """Comment."""
 
-  def __init__(self, config: T5GemmaModelConfig):
+  def __init__(self, config: T5GemmaE2EModelConfig):
     super().__init__()
     self.cfg = config
 
