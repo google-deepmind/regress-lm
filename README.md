@@ -45,6 +45,9 @@ Example Colabs for getting started and demonstrating flagship results:
 * **Kaggle Experiment Outcome Prediction:** <a href="https://colab.research.google.com/github/google-deepmind/regress-lm/blob/main/colabs/kaggle_demo.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab" style="vertical-align: middle"></a>
 
 ## Usage <a name="usage"></a>
+
+Check out our [examples directory](examples/) for detailed tutorials!
+
 There are two main stages: **inference** and **pretraining** (optional but
 recommended).
 
