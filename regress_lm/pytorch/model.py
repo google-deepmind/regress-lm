@@ -15,7 +15,6 @@
 """PyTorch implementation of a RegressLM."""
 
 # pytype:disable=attribute-error
-from concurrent import futures
 import dataclasses
 import functools
 from typing import Any, Sequence
