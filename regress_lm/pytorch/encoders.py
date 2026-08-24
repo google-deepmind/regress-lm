@@ -592,11 +592,12 @@ class T5GemmaEncoder(BaseEncoder):
     # pylint:disable=invalid-name
 
     AutoConfig = transformers.AutoConfig
-    T5GemmaForConditionalGeneration = (
-        transformers.T5Gemma2ForConditionalGeneration
-        if "t5gemma-2-" in model_name
-        else transformers.T5GemmaForConditionalGeneration
-    )
+    if "t5gemma-2-" in model_name:
+      from transformers.models.t5gemma2.modeling_t5gemma2 import T5Gemma2ForConditionalGeneration
+
+      ModelClass = T5Gemma2ForConditionalGeneration
+    else:
+      ModelClass = transformers.T5GemmaForConditionalGeneration
 
     config = AutoConfig.from_pretrained(model_name)
     config.dropout_rate = dropout  # FFN + residual (residual removed below).
@@ -609,7 +610,7 @@ class T5GemmaEncoder(BaseEncoder):
       enc_cfg.layer_types = ["full_attention"] * enc_cfg.num_hidden_layers
 
     if not random_init:
-      model = T5GemmaForConditionalGeneration.from_pretrained(
+      model = ModelClass.from_pretrained(
           model_name,
           config=config,
           attn_implementation=attn_implementation,
@@ -624,7 +625,7 @@ class T5GemmaEncoder(BaseEncoder):
         model.resize_token_embeddings(vocab_size)
     else:  # Random initialization.
       config.vocab_size = vocab_size
-      model = T5GemmaForConditionalGeneration(config)
+      model = ModelClass(config)
 
     self.encoder = model.get_encoder()
 
