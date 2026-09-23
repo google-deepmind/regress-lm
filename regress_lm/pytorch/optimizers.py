@@ -76,18 +76,18 @@ _NON_MUON_NAMES = [
 
 
 def muon_adamw(
-    params: NamedParameters, lr: float = 1e-4, weight_decay: float = 1e-3
+    params: NamedParameters, lr: float = 1e-4, weight_decay: float = 1e-4
 ):
   """Returns a hybrid optimizer with Muon and AdamW."""
-  muon_params, adamw_decay, adamw_no_decay = [], [], []
+  muon_params, adamw_no_decay = [], []
 
   for name, p in params:
     if p.ndim == 2 and not any(s in name.lower() for s in _NON_MUON_NAMES):
       muon_params.append(p)
-    elif p.ndim < 2:
-      adamw_no_decay.append(p)  # Biases and LayerNorm scales
     else:
-      adamw_decay.append(p)  # Embeddings and Output heads (even if 2D)
+      # Biases, LayerNorm scales, embeddings, and output heads (even if 2D)
+      # are never weight-decayed to avoid logit shrinkage and embedding decay.
+      adamw_no_decay.append(p)
 
   muon_opt = optim.Muon(
       muon_params,
@@ -95,11 +95,5 @@ def muon_adamw(
       weight_decay=weight_decay,
       adjust_lr_fn="match_rms_adamw",
   )
-  adamw_opt = optim.AdamW(
-      [
-          {"params": adamw_decay, "weight_decay": weight_decay},
-          {"params": adamw_no_decay, "weight_decay": 0.0},
-      ],
-      lr=lr,
-  )
+  adamw_opt = optim.AdamW(adamw_no_decay, lr=lr, weight_decay=0.0)
   return HybridOptimizer(muon_opt, adamw_opt)
