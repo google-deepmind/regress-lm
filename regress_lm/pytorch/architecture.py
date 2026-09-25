@@ -125,7 +125,7 @@ class EncoderDecoder(nn.Module):
         tgt = self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input))
         decoder_output = self.decoder(
             tgt=tgt,
-            memory=memory.to(dtype=tgt.dtype),
+            memory=memory.to(torch.bfloat16 if self.use_bf16 else tgt.dtype),
             tgt_mask=self._get_tgt_mask(tgt_input),
             tgt_is_causal=True,
             memory_key_padding_mask=src_padding_mask,
@@ -153,7 +153,7 @@ class EncoderDecoder(nn.Module):
       with nn.attention.sdpa_kernel(SPD_BACKENDS):
         decoder_output_all_steps = self.decoder(
             tgt=tgt,
-            memory=memory.to(dtype=tgt.dtype),
+            memory=memory.to(torch.bfloat16 if self.use_bf16 else tgt.dtype),
             tgt_mask=self._get_tgt_mask(current_tgt_seq),
             tgt_is_causal=True,
             memory_key_padding_mask=memory_key_padding_mask,
