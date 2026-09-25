@@ -20,6 +20,8 @@ from regress_lm.pytorch import encoders
 import torch
 from torch import nn
 
+autocast = torch.amp.autocast
+
 # Backends attempted in order.
 SPD_BACKENDS = [
     nn.attention.SDPBackend.FLASH_ATTENTION,
@@ -64,7 +66,7 @@ class EncoderDecoder(nn.Module):
       # encoder args
       encoder_type: encoders.EncoderType = encoders.EncoderType.VANILLA,
       additional_encoder_kwargs: dict[str, Any] | None = None,
-      use_bf16: bool = True,
+      try_bf16: bool = True,  # Only on cuda.
   ):
     super().__init__()
     self.encoder_pad_idx = encoder_pad_idx
@@ -75,7 +77,7 @@ class EncoderDecoder(nn.Module):
         max_encoder_len=max_encoder_len,
         **(additional_encoder_kwargs or {}),
     )
-    self.use_bf16 = use_bf16
+    self.use_bf16 = torch.cuda.is_available() and try_bf16
 
     # We use the hidden_dim of the encoder for the decoder.
     self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, self.encoder.hidden_dim)
@@ -116,16 +118,14 @@ class EncoderDecoder(nn.Module):
 
   def forward(self, src: torch.Tensor, tgt_input: torch.Tensor) -> torch.Tensor:
     src_padding_mask = src == self.encoder_pad_idx
-    use_bf16 = src.is_cuda and self.use_bf16
 
-    with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_bf16):
+    with autocast("cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
       with nn.attention.sdpa_kernel(SPD_BACKENDS):
         memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
         tgt = self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input))
-        mem_dtype = torch.bfloat16 if use_bf16 else tgt.dtype
         decoder_output = self.decoder(
             tgt=tgt,
-            memory=memory.to(dtype=mem_dtype),
+            memory=memory.to(dtype=tgt.dtype),
             tgt_mask=self._get_tgt_mask(tgt_input),
             tgt_is_causal=True,
             memory_key_padding_mask=src_padding_mask,
@@ -135,8 +135,7 @@ class EncoderDecoder(nn.Module):
   def encode(self, src: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Encodes the source sequence."""
     src_padding_mask = src == self.encoder_pad_idx
-    use_bf16 = src.is_cuda and self.use_bf16
-    with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_bf16):
+    with autocast("cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
       with nn.attention.sdpa_kernel(SPD_BACKENDS):
         memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
     return memory, src_padding_mask
@@ -148,15 +147,13 @@ class EncoderDecoder(nn.Module):
       memory_key_padding_mask: torch.Tensor,
   ) -> torch.Tensor:
     """Decodes one step using the standard decoder."""
-    use_bf16 = current_tgt_seq.is_cuda and self.use_bf16
-    with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_bf16):
+    with autocast("cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
       tgt = self.decoder_positional_encoding(self.tgt_tok_emb(current_tgt_seq))
-      mem_dtype = torch.bfloat16 if use_bf16 else tgt.dtype
 
       with nn.attention.sdpa_kernel(SPD_BACKENDS):
         decoder_output_all_steps = self.decoder(
             tgt=tgt,
-            memory=memory.to(dtype=mem_dtype),
+            memory=memory.to(dtype=tgt.dtype),
             tgt_mask=self._get_tgt_mask(current_tgt_seq),
             tgt_is_causal=True,
             memory_key_padding_mask=memory_key_padding_mask,
