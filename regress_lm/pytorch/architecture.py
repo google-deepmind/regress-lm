@@ -20,7 +20,6 @@ from regress_lm.pytorch import encoders
 import torch
 from torch import nn
 
-
 # Backends attempted in order.
 SPD_BACKENDS = [
     nn.attention.SDPBackend.FLASH_ATTENTION,
@@ -65,6 +64,7 @@ class EncoderDecoder(nn.Module):
       # encoder args
       encoder_type: encoders.EncoderType = encoders.EncoderType.VANILLA,
       additional_encoder_kwargs: dict[str, Any] | None = None,
+      use_bf16: bool = True,
   ):
     super().__init__()
     self.encoder_pad_idx = encoder_pad_idx
@@ -75,6 +75,7 @@ class EncoderDecoder(nn.Module):
         max_encoder_len=max_encoder_len,
         **(additional_encoder_kwargs or {}),
     )
+    self.use_bf16 = use_bf16
 
     # We use the hidden_dim of the encoder for the decoder.
     self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, self.encoder.hidden_dim)
@@ -82,45 +83,62 @@ class EncoderDecoder(nn.Module):
         self.encoder.hidden_dim,
         max_len=max_decoder_len,
     )
-    decoder_layer = nn.TransformerDecoderLayer(
-        self.encoder.hidden_dim,
-        nhead=8,
-        dim_feedforward=4 * self.encoder.hidden_dim,
-        dropout=decoder_dropout,
-        batch_first=True,
-        norm_first=True,
-    )
-    # Dropout only applies to the FFN internal (self.dropout).
-    # Zero out everything else: attention weights and residual connections.
-    decoder_layer.self_attn.dropout = 0.0
-    decoder_layer.multihead_attn.dropout = 0.0
-    decoder_layer.dropout1.p = 0.0  # Residual after self-attention.
-    decoder_layer.dropout2.p = 0.0  # Residual after cross-attention.
-    decoder_layer.dropout3.p = 0.0  # Residual after FFN.
-    self.decoder = nn.TransformerDecoder(
-        decoder_layer, num_layers=num_decoder_layers
-    )
+
+    def _make_decoder_layer() -> nn.TransformerDecoderLayer:
+      layer = nn.TransformerDecoderLayer(
+          self.encoder.hidden_dim,
+          nhead=8,
+          dim_feedforward=4 * self.encoder.hidden_dim,
+          dropout=decoder_dropout,
+          batch_first=True,
+          norm_first=True,
+      )
+      # Dropout only applies to the FFN internal (self.dropout).
+      # Zero out everything else: attention weights and residual connections.
+      layer.self_attn.dropout = 0.0
+      layer.multihead_attn.dropout = 0.0
+      layer.dropout1.p = 0.0  # Residual after self-attention.
+      layer.dropout2.p = 0.0  # Residual after cross-attention.
+      layer.dropout3.p = 0.0  # Residual after FFN.
+      return layer
+
+    # Instantiate each additional decoder layer independently so weights are
+    # randomly initialized per-layer. nn.TransformerDecoder uses copy.deepcopy
+    # from a single prototype, which gives identical weights across layers and
+    # causes permanent layer symmetry collapse when using Muon optimizer.
+    self.decoder = nn.TransformerDecoder(_make_decoder_layer(), num_layers=1)
+    if num_decoder_layers > 1:
+      self.decoder.layers.extend(
+          _make_decoder_layer() for _ in range(num_decoder_layers - 1)
+      )
+      self.decoder.num_layers = num_decoder_layers
     self.generator = nn.Linear(self.encoder.hidden_dim, decoder_vocab_size)
 
   def forward(self, src: torch.Tensor, tgt_input: torch.Tensor) -> torch.Tensor:
     src_padding_mask = src == self.encoder_pad_idx
+    use_bf16 = src.is_cuda and self.use_bf16
 
-    with nn.attention.sdpa_kernel(SPD_BACKENDS):
-      memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
-      decoder_output = self.decoder(
-          tgt=self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input)),
-          memory=memory.to(dtype=self.tgt_tok_emb.weight.dtype),
-          tgt_mask=self._get_tgt_mask(tgt_input),
-          tgt_is_causal=True,
-          memory_key_padding_mask=src_padding_mask,
-      )
-    return self.generator(decoder_output)
+    with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_bf16):
+      with nn.attention.sdpa_kernel(SPD_BACKENDS):
+        memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
+        tgt = self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input))
+        mem_dtype = torch.bfloat16 if use_bf16 else tgt.dtype
+        decoder_output = self.decoder(
+            tgt=tgt,
+            memory=memory.to(dtype=mem_dtype),
+            tgt_mask=self._get_tgt_mask(tgt_input),
+            tgt_is_causal=True,
+            memory_key_padding_mask=src_padding_mask,
+        )
+    return self.generator(decoder_output.float())
 
   def encode(self, src: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Encodes the source sequence."""
     src_padding_mask = src == self.encoder_pad_idx
-    with nn.attention.sdpa_kernel(SPD_BACKENDS):
-      memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
+    use_bf16 = src.is_cuda and self.use_bf16
+    with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_bf16):
+      with nn.attention.sdpa_kernel(SPD_BACKENDS):
+        memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
     return memory, src_padding_mask
 
   def next_token_logits(
@@ -130,17 +148,20 @@ class EncoderDecoder(nn.Module):
       memory_key_padding_mask: torch.Tensor,
   ) -> torch.Tensor:
     """Decodes one step using the standard decoder."""
-    tgt = self.decoder_positional_encoding(self.tgt_tok_emb(current_tgt_seq))
+    use_bf16 = current_tgt_seq.is_cuda and self.use_bf16
+    with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_bf16):
+      tgt = self.decoder_positional_encoding(self.tgt_tok_emb(current_tgt_seq))
+      mem_dtype = torch.bfloat16 if use_bf16 else tgt.dtype
 
-    with nn.attention.sdpa_kernel(SPD_BACKENDS):
-      decoder_output_all_steps = self.decoder(
-          tgt=tgt,
-          memory=memory.to(dtype=self.tgt_tok_emb.weight.dtype),
-          tgt_mask=self._get_tgt_mask(current_tgt_seq),
-          tgt_is_causal=True,
-          memory_key_padding_mask=memory_key_padding_mask,
-      )
-    return self.generator(decoder_output_all_steps[:, -1, :])
+      with nn.attention.sdpa_kernel(SPD_BACKENDS):
+        decoder_output_all_steps = self.decoder(
+            tgt=tgt,
+            memory=memory.to(dtype=mem_dtype),
+            tgt_mask=self._get_tgt_mask(current_tgt_seq),
+            tgt_is_causal=True,
+            memory_key_padding_mask=memory_key_padding_mask,
+        )
+    return self.generator(decoder_output_all_steps[:, -1, :].float())
 
   def _get_tgt_mask(self, tgt: torch.Tensor) -> torch.Tensor | None:
     """Returns explicit target mask if needed (e.g. on CPUs and tests)."""

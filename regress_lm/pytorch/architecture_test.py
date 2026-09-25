@@ -160,6 +160,32 @@ class ArchitectureTest(absltest.TestCase):
         all(0 <= token_id < self.decoder_vocab_size for token_id in decoded_ids)
     )
 
+  def test_decoder_layers_independently_initialized(self):
+    model = architecture.EncoderDecoder(
+        encoder_vocab_size=self.encoder_vocab_size,
+        decoder_vocab_size=self.decoder_vocab_size,
+        encoder_pad_idx=self.encoder_pad_idx,
+        max_encoder_len=self.max_encoder_len,
+        max_decoder_len=self.max_decoder_len,
+        d_model=self.d_model,
+        num_encoder_layers=2,
+        num_decoder_layers=3,
+    )
+    self.assertLen(model.decoder.layers, 3)
+    self.assertEqual(model.decoder.num_layers, 3)
+    self.assertFalse(
+        torch.equal(
+            model.decoder.layers[0].linear1.weight,
+            model.decoder.layers[1].linear1.weight,
+        )
+    )
+    self.assertFalse(
+        torch.equal(
+            model.decoder.layers[1].linear1.weight,
+            model.decoder.layers[2].linear1.weight,
+        )
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

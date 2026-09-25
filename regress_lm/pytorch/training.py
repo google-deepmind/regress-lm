@@ -115,6 +115,8 @@ class Trainer:
 
     current_device = 'cpu'
     if torch.cuda.is_available():
+      torch.set_float32_matmul_precision('high')
+      torch.backends.cudnn.allow_tf32 = True
       current_device = torch.cuda.current_device()
       self._training_wrapper.to(f'cuda:{current_device}')
 
