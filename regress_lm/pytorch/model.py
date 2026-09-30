@@ -221,22 +221,8 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     batch_size = encoder_input.shape[0]
     expanded_batch_size = batch_size * num_samples
     # memory: (B, L_src, D_model), memory_key_padding_mask: (B, L_src)
+    # These are shared by (not copied for) the num_samples decoded sequences.
     memory, memory_key_padding_mask = self.encoder_decoder.encode(encoder_input)
-
-    # Expand encoder outputs and masks for num_samples
-    # Effectively, new batch_size = B * num_samples
-    # memory: (B, L_src, D) -> (B, 1, L_src, D) -> (B, S, L_src, D)
-    # -> (B*S, L_src, D)
-    expanded_memory = (
-        memory.unsqueeze(1)
-        .expand(-1, num_samples, -1, -1)
-        .reshape(batch_size * num_samples, memory.size(1), memory.size(2))
-    )
-    expanded_memory_key_padding_mask = (
-        memory_key_padding_mask.unsqueeze(1)
-        .expand(-1, num_samples, -1)
-        .reshape(batch_size * num_samples, memory_key_padding_mask.size(1))
-    )
 
     # Initialize decoder input for the expanded batch, start with <pad>.
     current_tgt_ids = torch.full(
@@ -276,7 +262,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         # Get logits for the next token for all (B * num_samples) sequences
         # Shape: (B*S, V)
         logits = self.encoder_decoder.next_token_logits(
-            current_tgt_ids, expanded_memory, expanded_memory_key_padding_mask
+            current_tgt_ids, memory, memory_key_padding_mask
         )
         masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
 

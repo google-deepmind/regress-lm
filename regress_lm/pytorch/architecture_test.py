@@ -160,6 +160,17 @@ class ArchitectureTest(absltest.TestCase):
         all(0 <= token_id < self.decoder_vocab_size for token_id in decoded_ids)
     )
 
+  def test_samples_share_memory(self):
+    src = torch.randint(1, self.encoder_vocab_size, (2, self.src_seq_len))
+    src[0, -3:] = self.encoder_pad_idx
+    memory, padding_mask = self.model.encode(src)
+    tgt = torch.randint(0, self.decoder_vocab_size, (2 * 3, 4))  # 3 samples.
+    copied = self.model(src.repeat_interleave(3, dim=0), tgt)[:, -1]
+    shared = self.model.next_token_logits(tgt, memory, padding_mask)
+    torch.testing.assert_close(shared, copied, atol=1e-4, rtol=1e-4)
+    with self.assertRaises(ValueError):  # 5 is not a multiple of 2.
+      self.model.next_token_logits(tgt[1:], memory, padding_mask)
+
   def test_decoder_layers_independently_initialized(self):
     model = architecture.EncoderDecoder(
         encoder_vocab_size=self.encoder_vocab_size,

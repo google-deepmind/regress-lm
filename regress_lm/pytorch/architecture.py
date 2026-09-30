@@ -49,6 +49,19 @@ class _PositionalEncoding(nn.Module):
     return x + self.pe[:, : x.size(1)]
 
 
+class _SharedMemoryDecoderLayer(nn.TransformerDecoderLayer):
+  """Lets (B * S, T, D) targets share (B, L, D) memory, e.g. for S samples.
+
+  Folds samples into the cross-attention query axis instead of copying memory.
+  """
+
+  def _mha_block(self, x, mem, *args, **kwargs):
+    if x.shape[0] % mem.shape[0]:
+      raise ValueError("Target batch must be a multiple of memory batch.")
+    folded = x.reshape(mem.shape[0], -1, x.shape[-1])  # (B, S * T, D)
+    return super()._mha_block(folded, mem, *args, **kwargs).reshape(x.shape)
+
+
 class EncoderDecoder(nn.Module):
   """Encoder-Decoder model in PyTorch."""
 
@@ -87,7 +100,7 @@ class EncoderDecoder(nn.Module):
     )
 
     def _make_decoder_layer() -> nn.TransformerDecoderLayer:
-      layer = nn.TransformerDecoderLayer(
+      layer = _SharedMemoryDecoderLayer(
           self.encoder.hidden_dim,
           nhead=8,
           dim_feedforward=4 * self.encoder.hidden_dim,
@@ -146,7 +159,7 @@ class EncoderDecoder(nn.Module):
       memory: torch.Tensor,
       memory_key_padding_mask: torch.Tensor,
   ) -> torch.Tensor:
-    """Decodes one step using the standard decoder."""
+    """Decodes one step. (B * S, T) targets may share (B, L, D) memory."""
     with autocast("cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
       tgt = self.decoder_positional_encoding(self.tgt_tok_emb(current_tgt_seq))
 
