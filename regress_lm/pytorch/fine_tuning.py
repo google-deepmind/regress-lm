@@ -73,7 +73,28 @@ def _cycle_loader(dataloader: utils.data.DataLoader):
 NamedParameters = optimizers_lib.NamedParameters
 
 # Safe default from PEFT documentation.
-DEFAULT_LORA_TARGET_MODULES = "all-linear"
+LINEAR_TARGET_MODULES = "all-linear"
+
+
+def _resolve_target_modules(
+    model: nn.Module, target_modules: Sequence[str] | str
+) -> list[str] | str:
+  """Resolves 'all-linear' to include Linear and MultiheadAttention layers."""
+  if not isinstance(target_modules, str):
+    return list(target_modules)
+  if target_modules != LINEAR_TARGET_MODULES:
+    return target_modules
+
+  # PEFT's MultiheadAttention wrapper already adapts its child .out_proj.
+  mha_out_projs = set()
+  names = []
+  for name, module in model.named_modules():
+    if isinstance(module, nn.MultiheadAttention):
+      mha_out_projs.add(module.out_proj)
+      names.append(name)
+    elif isinstance(module, nn.Linear) and module not in mha_out_projs:
+      names.append(name)
+  return names
 
 
 @dataclasses.dataclass(frozen=True)
@@ -108,7 +129,7 @@ class PyTorchFineTuner(core.FineTuner):
       lora_r: int = 8,
       lora_alpha: int = 16,
       lora_dropout: float = 0.0,
-      target_modules: Sequence[str] | str = DEFAULT_LORA_TARGET_MODULES,
+      target_modules: Sequence[str] | str = LINEAR_TARGET_MODULES,
   ):
     """Initializes the fine-tuner.
 
@@ -142,13 +163,12 @@ class PyTorchFineTuner(core.FineTuner):
     self.max_steps_per_epoch = max_steps_per_epoch
 
     if use_lora:
+      target_modules = _resolve_target_modules(self.model, target_modules)
       self.lora_config = peft.LoraConfig(
           r=lora_r,
           lora_alpha=lora_alpha,
           lora_dropout=lora_dropout,
-          target_modules=list(target_modules)
-          if not isinstance(target_modules, str)
-          else target_modules,
+          target_modules=target_modules,
           bias="none",
       )
       self.lora_wrapper = peft.get_peft_model(model, self.lora_config)  # pyrefly: ignore[bad-argument-type]

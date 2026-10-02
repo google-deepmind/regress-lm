@@ -274,6 +274,7 @@ class ModelTest(parameterized.TestCase):
       torch.testing.assert_close(final_state[key], best_state[key])
 
   def test_lora_fine_tuning(self):
+    state_before = copy.deepcopy(self.model.state_dict())
     # Adafactor is too conservative when using LoRA, use AdamW instead.
     lora_fine_tuner = fine_tuning.PyTorchFineTuner(
         model=self.model,
@@ -296,7 +297,21 @@ class ModelTest(parameterized.TestCase):
     lora_fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -5.9, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -12.4, 1)
+
+    state_after = self.model.state_dict()
+    updated_keys = [
+        'encoder_decoder.encoder.layers.0.v_proj.weight',
+        'encoder_decoder.decoder.layers.0.self_attn.in_proj_weight',
+        'encoder_decoder.decoder.layers.0.self_attn.out_proj.weight',
+        'encoder_decoder.decoder.layers.0.multihead_attn.in_proj_weight',
+        'encoder_decoder.decoder.layers.0.multihead_attn.out_proj.weight',
+    ]
+    for key in updated_keys:
+      self.assertFalse(torch.equal(state_before[key], state_after[key]), key)
+
+    emb_key = 'encoder_decoder.tgt_tok_emb.weight'
+    self.assertTrue(torch.equal(state_before[emb_key], state_after[emb_key]))
 
 
 if __name__ == '__main__':

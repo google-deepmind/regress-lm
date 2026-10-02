@@ -55,7 +55,7 @@ class RegressLM:
         lora_alpha=kwargs.get("lora_alpha", 16),
         lora_dropout=kwargs.get("lora_dropout", 0.0),
         target_modules=kwargs.get(
-            "target_modules", pytorch_fine_tuning.DEFAULT_LORA_TARGET_MODULES
+            "target_modules", pytorch_fine_tuning.LINEAR_TARGET_MODULES
         ),
     )
     fine_tuner.fine_tune(examples, validation_examples, seed)
