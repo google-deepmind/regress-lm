@@ -28,9 +28,8 @@ class ArchitectureTest(absltest.TestCase):
     self.encoder_pad_idx = 0
     self.decoder_pad_idx = 0
     self.max_encoder_len = 15
-    self.max_decoder_len = 6 + 1
-
     self.src_seq_len = 10  # Less than max_encoder_len
+    self.tgt_seq_len = 6 + 1
 
     self.d_model = 32
 
@@ -39,7 +38,6 @@ class ArchitectureTest(absltest.TestCase):
         decoder_vocab_size=self.decoder_vocab_size,
         encoder_pad_idx=self.encoder_pad_idx,
         max_encoder_len=self.max_encoder_len,
-        max_decoder_len=self.max_decoder_len,
         d_model=self.d_model,
         num_encoder_layers=1,
         num_decoder_layers=1,
@@ -57,7 +55,7 @@ class ArchitectureTest(absltest.TestCase):
     src[1, -1:] = self.encoder_pad_idx
 
     tgt_input = torch.randint(
-        1, self.decoder_vocab_size, (self.batch_size, self.max_decoder_len)
+        1, self.decoder_vocab_size, (self.batch_size, self.tgt_seq_len)
     )
     # Add some padding to tgt_input
     tgt_input[0, -1:] = self.decoder_pad_idx
@@ -66,7 +64,7 @@ class ArchitectureTest(absltest.TestCase):
 
     self.assertEqual(
         output_logits.shape,
-        (self.batch_size, self.max_decoder_len, self.decoder_vocab_size),
+        (self.batch_size, self.tgt_seq_len, self.decoder_vocab_size),
     )
 
   def test_encode(self):
@@ -177,7 +175,6 @@ class ArchitectureTest(absltest.TestCase):
         decoder_vocab_size=self.decoder_vocab_size,
         encoder_pad_idx=self.encoder_pad_idx,
         max_encoder_len=self.max_encoder_len,
-        max_decoder_len=self.max_decoder_len,
         d_model=self.d_model,
         num_encoder_layers=2,
         num_decoder_layers=3,

@@ -82,13 +82,13 @@ class ModelTest(parameterized.TestCase):
     examples_tensors = self.model.converter.convert_examples(raw_examples)
     log_probs_before = self.model.log_prob(examples_tensors)
     self.assertEqual(log_probs_before.shape, (2,))
-    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -22.1, 1)
+    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -20.7, 1)
 
     # Update the model. Logprob should improve.
     self.fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -13.2, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -14.6, 1)
 
   def test_compute_losses_and_metrics(self):
     """Verifies the exact output of the loss calculation."""
@@ -106,11 +106,11 @@ class ModelTest(parameterized.TestCase):
 
     # Check the per-example loss (mean over tokens)
     self.assertEqual(losses_per_example.shape, (2,))
-    self.assertAlmostEqual(losses_per_example[0].item(), 3.6756, 3)
-    self.assertAlmostEqual(losses_per_example[1].item(), 3.9585, 3)
+    self.assertAlmostEqual(losses_per_example[0].item(), 3.4492, 3)
+    self.assertAlmostEqual(losses_per_example[1].item(), 3.4429, 3)
 
     # Check the overall batch loss metric
-    self.assertAlmostEqual(metrics['loss_mean'].item(), 3.8171, 3)
+    self.assertAlmostEqual(metrics['loss_mean'].item(), 3.4460, 3)
 
   def test_decode(self):
     raw_example = [core.Example(x='hello', y=2.123)]
@@ -122,16 +122,16 @@ class ModelTest(parameterized.TestCase):
     # 1 example, 1024 samples, 1 objective total.
     self.assertEqual(tuple(output_floats.shape), (1, 1024, 1))
 
-    self.assertAlmostEqual(output_floats[0, 0, 0], 0.6898)
-    self.assertAlmostEqual(output_floats[0, 1, 0], -2306000000.0)
+    self.assertAlmostEqual(output_floats[0, 0, 0], 29420.0)
+    self.assertAlmostEqual(output_floats[0, 1, 0], -0.002378)
 
-    self.assertAlmostEqual(np.median(output_floats), 0.00087280)
+    self.assertAlmostEqual(np.median(output_floats), 2.37e-7)
 
     # After updating, the median should get closer to target y.
     self.fine_tuner.fine_tune(raw_example, seed=42)
 
     _, output_floats = self.model.decode(batch, num_samples=128)
-    self.assertAlmostEqual(np.median(output_floats), 2.5275)
+    self.assertAlmostEqual(np.median(output_floats), 0.338835)
 
   def test_decode_special_tokens(self):
     tokenizer = tokenizers.AddSpecialValues(tokenizers.P10Tokenizer())
@@ -152,7 +152,7 @@ class ModelTest(parameterized.TestCase):
     decoded_ids, _ = model.decode(batch, num_samples=5)
 
     np.testing.assert_array_equal(decoded_ids[0, 0], [37, 37, 37, 37, 37, 37])
-    np.testing.assert_array_equal(decoded_ids[0, 1], [2, 5, 12, 8, 8, 31])
+    np.testing.assert_array_equal(decoded_ids[0, 1], [34, 34, 34, 34, 34, 34])
 
   @parameterized.parameters(True, False)
   def test_multiobjective(self, add_separators: bool):
@@ -291,21 +291,21 @@ class ModelTest(parameterized.TestCase):
     examples_tensors = self.model.converter.convert_examples(raw_examples)
     log_probs_before = self.model.log_prob(examples_tensors)
     self.assertEqual(log_probs_before.shape, (2,))
-    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -22.1, 1)
+    self.assertAlmostEqual(log_probs_before[0].squeeze().item(), -20.7, 1)
 
     # Update the model. Logprob should improve.
     lora_fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -12.4, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -10.1, 1)
 
     state_after = self.model.state_dict()
     updated_keys = [
         'encoder_decoder.encoder.layers.0.v_proj.weight',
-        'encoder_decoder.decoder.layers.0.self_attn.in_proj_weight',
+        'encoder_decoder.decoder.layers.0.self_attn.q_proj.weight',
         'encoder_decoder.decoder.layers.0.self_attn.out_proj.weight',
-        'encoder_decoder.decoder.layers.0.multihead_attn.in_proj_weight',
-        'encoder_decoder.decoder.layers.0.multihead_attn.out_proj.weight',
+        'encoder_decoder.decoder.layers.0.cross_attn.v_proj.weight',
+        'encoder_decoder.decoder.layers.0.cross_attn.out_proj.weight',
     ]
     for key in updated_keys:
       self.assertFalse(torch.equal(state_before[key], state_after[key]), key)

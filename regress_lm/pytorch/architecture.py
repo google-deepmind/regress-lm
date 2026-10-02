@@ -14,8 +14,8 @@
 
 """Default PyTorch architecture for a RegressLM."""
 
-import math
 from typing import Any
+from regress_lm.pytorch import decoders
 from regress_lm.pytorch import encoders
 import torch
 from torch import nn
@@ -31,37 +31,6 @@ SPD_BACKENDS = [
 ]
 
 
-class _PositionalEncoding(nn.Module):
-  """Default positional encoding."""
-
-  def __init__(self, d_model: int, max_len: int):
-    super().__init__()
-    pos = torch.arange(max_len).unsqueeze(1)
-    div = torch.exp(
-        torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
-    )
-    pe = torch.zeros(1, max_len, d_model)
-    pe[0, :, 0::2] = torch.sin(pos * div)
-    pe[0, :, 1::2] = torch.cos(pos * div)
-    self.register_buffer("pe", pe)
-
-  def forward(self, x: torch.Tensor) -> torch.Tensor:
-    return x + self.pe[:, : x.size(1)]
-
-
-class _SharedMemoryDecoderLayer(nn.TransformerDecoderLayer):
-  """Lets (B * S, T, D) targets share (B, L, D) memory, e.g. for S samples.
-
-  Folds samples into the cross-attention query axis instead of copying memory.
-  """
-
-  def _mha_block(self, x, mem, *args, **kwargs):
-    if x.shape[0] % mem.shape[0]:
-      raise ValueError("Target batch must be a multiple of memory batch.")
-    folded = x.reshape(mem.shape[0], -1, x.shape[-1])  # (B, S * T, D)
-    return super()._mha_block(folded, mem, *args, **kwargs).reshape(x.shape)
-
-
 class EncoderDecoder(nn.Module):
   """Encoder-Decoder model in PyTorch."""
 
@@ -71,7 +40,6 @@ class EncoderDecoder(nn.Module):
       decoder_vocab_size: int,
       encoder_pad_idx: int,
       max_encoder_len: int,
-      max_decoder_len: int,
       d_model: int,
       num_encoder_layers: int,
       num_decoder_layers: int,
@@ -93,41 +61,10 @@ class EncoderDecoder(nn.Module):
     self.use_bf16 = torch.cuda.is_available() and try_bf16
 
     # We use the hidden_dim of the encoder for the decoder.
-    self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, self.encoder.hidden_dim)
-    self.decoder_positional_encoding = _PositionalEncoding(
-        self.encoder.hidden_dim,
-        max_len=max_decoder_len,
-    )
-
-    def _make_decoder_layer() -> nn.TransformerDecoderLayer:
-      layer = _SharedMemoryDecoderLayer(
-          self.encoder.hidden_dim,
-          nhead=8,
-          dim_feedforward=4 * self.encoder.hidden_dim,
-          dropout=decoder_dropout,
-          batch_first=True,
-          norm_first=True,
-      )
-      # Dropout only applies to the FFN internal (self.dropout).
-      # Zero out everything else: attention weights and residual connections.
-      layer.self_attn.dropout = 0.0
-      layer.multihead_attn.dropout = 0.0
-      layer.dropout1.p = 0.0  # Residual after self-attention.
-      layer.dropout2.p = 0.0  # Residual after cross-attention.
-      layer.dropout3.p = 0.0  # Residual after FFN.
-      return layer
-
-    # Instantiate each additional decoder layer independently so weights are
-    # randomly initialized per-layer. nn.TransformerDecoder uses copy.deepcopy
-    # from a single prototype, which gives identical weights across layers and
-    # causes permanent layer symmetry collapse when using Muon optimizer.
-    self.decoder = nn.TransformerDecoder(_make_decoder_layer(), num_layers=1)
-    if num_decoder_layers > 1:
-      self.decoder.layers.extend(
-          _make_decoder_layer() for _ in range(num_decoder_layers - 1)
-      )
-      self.decoder.num_layers = num_decoder_layers
-    self.generator = nn.Linear(self.encoder.hidden_dim, decoder_vocab_size)
+    d_enc = self.encoder.hidden_dim
+    self.tgt_tok_emb = nn.Embedding(decoder_vocab_size, d_enc)
+    self.decoder = decoders.Decoder(d_enc, num_decoder_layers, decoder_dropout)
+    self.generator = nn.Linear(d_enc, decoder_vocab_size)
 
   def forward(self, src: torch.Tensor, tgt_input: torch.Tensor) -> torch.Tensor:
     src_padding_mask = src == self.encoder_pad_idx
@@ -135,15 +72,9 @@ class EncoderDecoder(nn.Module):
     with autocast("cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
       with nn.attention.sdpa_kernel(SPD_BACKENDS):
         memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
-        tgt = self.decoder_positional_encoding(self.tgt_tok_emb(tgt_input))
-        decoder_output = self.decoder(
-            tgt=tgt,
-            memory=memory.to(torch.bfloat16 if self.use_bf16 else tgt.dtype),
-            tgt_mask=self._get_tgt_mask(tgt_input),
-            tgt_is_causal=True,
-            memory_key_padding_mask=src_padding_mask,
-        )
-    return self.generator(decoder_output.float())
+        tgt = self.tgt_tok_emb(tgt_input)
+        out = self.decoder(tgt, memory, src_padding_mask)
+    return self.generator(out.float())
 
   def encode(self, src: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Encodes the source sequence."""
@@ -161,21 +92,7 @@ class EncoderDecoder(nn.Module):
   ) -> torch.Tensor:
     """Decodes one step. (B * S, T) targets may share (B, L, D) memory."""
     with autocast("cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
-      tgt = self.decoder_positional_encoding(self.tgt_tok_emb(current_tgt_seq))
-
       with nn.attention.sdpa_kernel(SPD_BACKENDS):
-        decoder_output_all_steps = self.decoder(
-            tgt=tgt,
-            memory=memory.to(torch.bfloat16 if self.use_bf16 else tgt.dtype),
-            tgt_mask=self._get_tgt_mask(current_tgt_seq),
-            tgt_is_causal=True,
-            memory_key_padding_mask=memory_key_padding_mask,
-        )
-    return self.generator(decoder_output_all_steps[:, -1, :].float())
-
-  def _get_tgt_mask(self, tgt: torch.Tensor) -> torch.Tensor | None:
-    """Returns explicit target mask if needed (e.g. on CPUs and tests)."""
-    # TorchInductor will ignore this after compilation, allowing speedups.
-    return nn.Transformer.generate_square_subsequent_mask(
-        tgt.size(1), device=tgt.device, dtype=torch.bool
-    )
+        tgt = self.tgt_tok_emb(current_tgt_seq)
+        out = self.decoder(tgt, memory, memory_key_padding_mask)
+    return self.generator(out[:, -1, :].float())

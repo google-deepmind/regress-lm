@@ -76,27 +76,6 @@ NamedParameters = optimizers_lib.NamedParameters
 LINEAR_TARGET_MODULES = "all-linear"
 
 
-def _resolve_target_modules(
-    model: nn.Module, target_modules: Sequence[str] | str
-) -> list[str] | str:
-  """Resolves 'all-linear' to include Linear and MultiheadAttention layers."""
-  if not isinstance(target_modules, str):
-    return list(target_modules)
-  if target_modules != LINEAR_TARGET_MODULES:
-    return target_modules
-
-  # PEFT's MultiheadAttention wrapper already adapts its child .out_proj.
-  mha_out_projs = set()
-  names = []
-  for name, module in model.named_modules():
-    if isinstance(module, nn.MultiheadAttention):
-      mha_out_projs.add(module.out_proj)
-      names.append(name)
-    elif isinstance(module, nn.Linear) and module not in mha_out_projs:
-      names.append(name)
-  return names
-
-
 @dataclasses.dataclass(frozen=True)
 class EpochState:
   """Snapshot of fine-tuner state after one epoch, passed to callbacks."""
@@ -163,7 +142,8 @@ class PyTorchFineTuner(core.FineTuner):
     self.max_steps_per_epoch = max_steps_per_epoch
 
     if use_lora:
-      target_modules = _resolve_target_modules(self.model, target_modules)
+      if not isinstance(target_modules, str):
+        target_modules = list(target_modules)
       self.lora_config = peft.LoraConfig(
           r=lora_r,
           lora_alpha=lora_alpha,

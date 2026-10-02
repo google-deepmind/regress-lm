@@ -162,7 +162,6 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         decoder_vocab_size=len(self.cfg.decoder_vocab),
         encoder_pad_idx=self.cfg.encoder_vocab.pad_id,
         max_encoder_len=self.cfg.max_input_len,
-        max_decoder_len=self.cfg.decode_len + 1,
         **self.cfg.architecture_kwargs,
     )
 
