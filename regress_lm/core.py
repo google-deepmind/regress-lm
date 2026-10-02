@@ -67,7 +67,10 @@ class Model(Generic[TensorT], abc.ABC):
 
   @abc.abstractmethod
   def decode(
-      self, inputs: dict[str, TensorT], num_samples: int
+      self,
+      inputs: dict[str, TensorT],
+      num_samples: int,
+      temperature: float = 1.0,
   ) -> tuple[TensorT, np.ndarray]:
     """Decodes tokens and returns them and corresponding floats."""
 
