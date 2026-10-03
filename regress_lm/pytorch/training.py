@@ -21,6 +21,7 @@ import threading
 from typing import Any, Callable, Iterator
 import numpy as np
 from regress_lm import core
+from regress_lm.pytorch import data_utils
 from regress_lm.pytorch import model as pytorch_model
 from regress_lm.pytorch import optimizers
 import torch
@@ -146,6 +147,9 @@ class Trainer:
     # Create dataloaders for training and validation.
     train_is_iter = isinstance(train_ds, utils.data.IterableDataset)
     self._train_sampler = get_sampler(train_ds, self._use_ddp)
+    collate = self._model.converter.convert_examples
+    if not compile_model:  # Varying batch widths would cause recompiles.
+      collate = data_utils.CollateAndTrim(collate)
 
     self._train_dl = utils.data.DataLoader(
         dataset=train_ds,
@@ -153,7 +157,7 @@ class Trainer:
         shuffle=(self._train_sampler is None and not train_is_iter),
         sampler=self._train_sampler,
         num_workers=num_data_workers,
-        collate_fn=self._model.converter.convert_examples,
+        collate_fn=collate,
         drop_last=True,  # Recommended to avoid model re-compilations.
         pin_memory=True,
     )

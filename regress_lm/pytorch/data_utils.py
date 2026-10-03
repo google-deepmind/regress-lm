@@ -14,7 +14,8 @@
 
 """Torch-specific datasets for creating data pipelines."""
 
-from typing import Sequence
+import dataclasses
+from typing import Any, Callable, Sequence
 
 from regress_lm import core
 import torch
@@ -77,3 +78,15 @@ class DictTensorDataset(utils.data.Dataset[dict[str, torch.Tensor]]):
 
   def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
     return {k: t[idx] for k, t in self.tensors.items()}
+
+
+@dataclasses.dataclass(frozen=True)
+class CollateAndTrim:
+  """Collates samples, then drops all-pad encoder columns (masked anyway)."""
+
+  collate: Callable[..., dict[str, torch.Tensor]] = utils.data.default_collate
+
+  def __call__(self, samples: list[Any]) -> dict[str, torch.Tensor]:
+    batch = self.collate(samples)
+    n = max(1, int(batch["input_token_lens"].max()))
+    return batch | {"encoder_input": batch["encoder_input"][:, :n].contiguous()}

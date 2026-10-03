@@ -112,6 +112,19 @@ class ModelTest(parameterized.TestCase):
     # Check the overall batch loss metric
     self.assertAlmostEqual(metrics['loss_mean'].item(), 3.4460, 3)
 
+  def test_losses_ignore_trailing_padding(self):
+    # Training drops all-pad encoder columns, which must not change losses.
+    batch = self.model.converter.convert_examples(
+        [core.Example(x='hello', y=1.0), core.Example(x='hello world', y=2.0)]
+    )
+    trimmed = batch | {'encoder_input': batch['encoder_input'][:, :2]}
+    self.model.eval()
+    with torch.no_grad():
+      torch.testing.assert_close(
+          self.model.compute_losses_and_metrics(trimmed)[0],
+          self.model.compute_losses_and_metrics(batch)[0],
+      )
+
   def test_decode(self):
     raw_example = [core.Example(x='hello', y=2.123)]
     batch = self.model.converter.convert_examples(raw_example)

@@ -206,14 +206,17 @@ class PyTorchFineTuner(core.FineTuner):
         shuffle=True,
         generator=g,
         drop_last=False,
+        collate_fn=data_utils.CollateAndTrim(),
     )
     train_iter = _cycle_loader(train_dl)
 
     valid_dl = utils.data.DataLoader(
         data_utils.DictTensorDataset(valid_tensors),
         batch_size=micro_batch_size,
-        shuffle=False,
+        # Length-sorted batches need less padding; the mean loss is unchanged.
+        sampler=valid_tensors["input_token_lens"].argsort(descending=True),
         drop_last=False,
+        collate_fn=data_utils.CollateAndTrim(),
     )
 
     # Perform an initial validation run before training
