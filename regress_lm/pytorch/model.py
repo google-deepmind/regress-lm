@@ -145,6 +145,11 @@ class PyTorchConverter(core.Converter[Tensor]):
     }
     return self.convert_inputs(examples) | decoder_out
 
+  def trim_padding(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
+    """Drops all-pad encoder columns (masked anyway) from a converted batch."""
+    n = max(1, int(batch['input_token_lens'].max()))
+    return batch | {'encoder_input': batch['encoder_input'][:, :n].contiguous()}
+
 
 class PyTorchModel(nn.Module, core.Model[Tensor]):
   """PyTorch implementation of a RegressLM.
@@ -216,6 +221,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       num_samples: int,
       temperature: float = 1.0,
   ) -> tuple[Tensor, np.ndarray]:
+    inputs = self.converter.trim_padding(inputs)
     encoder_input = self.to_device(inputs['encoder_input'])  # (B, L_src)
     batch_size = encoder_input.shape[0]
     expanded_batch_size = batch_size * num_samples
@@ -303,6 +309,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     return final_decoded_ids, output_floats
 
   def log_prob(self, examples: dict[str, Tensor]) -> Tensor:
+    examples = self.converter.trim_padding(examples)
     logits = self.encoder_decoder.forward(
         self.to_device(examples['encoder_input']),
         self.to_device(examples['decoder_input']),
@@ -320,5 +327,5 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     return sequence_sum_log_probs
 
   @functools.cached_property
-  def converter(self) -> core.Converter[Tensor]:
+  def converter(self) -> PyTorchConverter:
     return self.cfg.make_converter()

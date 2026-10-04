@@ -195,18 +195,19 @@ class PyTorchFineTuner(core.FineTuner):
           num_updates_per_epoch, self.max_steps_per_epoch
       )
 
-    train_tensors = self.target_model.converter.convert_examples(examples)
-    valid_tensors = self.target_model.converter.convert_examples(
-        validation_examples
-    )
+    converter = self.target_model.converter
+    train_tensors = converter.convert_examples(examples)
+    valid_tensors = converter.convert_examples(validation_examples)
 
+    trim = converter.trim_padding
+    collate = data_utils.Compose([utils.data.default_collate, trim])
     train_dl = utils.data.DataLoader(
         data_utils.DictTensorDataset(train_tensors),
         batch_size=micro_batch_size,
         shuffle=True,
         generator=g,
         drop_last=False,
-        collate_fn=data_utils.CollateAndTrim(),
+        collate_fn=collate,
     )
     train_iter = _cycle_loader(train_dl)
 
@@ -216,7 +217,7 @@ class PyTorchFineTuner(core.FineTuner):
         # Length-sorted batches need less padding; the mean loss is unchanged.
         sampler=valid_tensors["input_token_lens"].argsort(descending=True),
         drop_last=False,
-        collate_fn=data_utils.CollateAndTrim(),
+        collate_fn=collate,
     )
 
     # Perform an initial validation run before training

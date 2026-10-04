@@ -14,6 +14,7 @@
 
 """Tests for torch-specific data utils, including DataLoader integration."""
 
+import pickle
 from regress_lm import core
 from regress_lm.pytorch import data_utils
 import torch
@@ -87,14 +88,10 @@ class DataLoaderIntegrationTest(absltest.TestCase):
     torch.testing.assert_close(batch_1["input_tensor"], expected_input_1)
     torch.testing.assert_close(batch_1["target_tensor"], expected_target_1)
 
-  def test_collate_and_trim(self):
-    samples = [
-        {"encoder_input": torch.tensor([7, 0, 0]), "input_token_lens": 1},
-        {"encoder_input": torch.tensor([7, 8, 0]), "input_token_lens": 2},
-    ]
-    batch = data_utils.CollateAndTrim()(samples)
-    expected = torch.tensor([[7, 0], [7, 8]])
-    torch.testing.assert_close(batch["encoder_input"], expected)
+  def test_compose(self):
+    compose = data_utils.Compose([sum, abs])
+    self.assertEqual(compose([-1, -2]), 3)
+    pickle.dumps(compose)  # Picklable, unlike a lambda.
 
 
 if __name__ == "__main__":

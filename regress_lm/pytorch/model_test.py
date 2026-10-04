@@ -117,13 +117,29 @@ class ModelTest(parameterized.TestCase):
     batch = self.model.converter.convert_examples(
         [core.Example(x='hello', y=1.0), core.Example(x='hello world', y=2.0)]
     )
-    trimmed = batch | {'encoder_input': batch['encoder_input'][:, :2]}
+    trimmed = self.model.converter.trim_padding(batch)
+    np.testing.assert_array_equal(trimmed['encoder_input'], [[2, 0], [2, 3]])
     self.model.eval()
     with torch.no_grad():
       torch.testing.assert_close(
           self.model.compute_losses_and_metrics(trimmed)[0],
           self.model.compute_losses_and_metrics(batch)[0],
       )
+
+  def test_inference_ignores_trailing_padding(self):
+    batch = self.model.converter.convert_examples(
+        [core.Example(x='hello', y=1.0), core.Example(x='hello world', y=2.0)]
+    )
+    untrimmed = batch | {'input_token_lens': torch.tensor([4, 4])}  # No trim.
+    self.model.eval()
+    torch.testing.assert_close(
+        self.model.log_prob(batch), self.model.log_prob(untrimmed)
+    )
+    torch.manual_seed(0)
+    ids, _ = self.model.decode(batch, num_samples=64)
+    torch.manual_seed(0)
+    untrimmed_ids, _ = self.model.decode(untrimmed, num_samples=64)
+    torch.testing.assert_close(ids, untrimmed_ids)
 
   def test_decode(self):
     raw_example = [core.Example(x='hello', y=2.123)]

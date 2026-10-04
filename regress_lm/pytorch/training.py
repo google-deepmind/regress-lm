@@ -149,7 +149,9 @@ class Trainer:
     self._train_sampler = get_sampler(train_ds, self._use_ddp)
     collate = self._model.converter.convert_examples
     if not compile_model:  # Varying batch widths would cause recompiles.
-      collate = data_utils.CollateAndTrim(collate)
+      collate = data_utils.Compose(
+          [collate, self._model.converter.trim_padding]
+      )
 
     self._train_dl = utils.data.DataLoader(
         dataset=train_ds,
