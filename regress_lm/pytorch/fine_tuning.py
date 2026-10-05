@@ -78,7 +78,7 @@ LINEAR_TARGET_MODULES = "all-linear"
 
 @dataclasses.dataclass(frozen=True)
 class EpochState:
-  """Snapshot of fine-tuner state after one epoch, passed to callbacks."""
+  """Snapshot of fine-tuner state after one validation, passed to callbacks."""
 
   epoch: int
   val_loss: float
@@ -103,6 +103,7 @@ class PyTorchFineTuner(core.FineTuner):
       batch_size_per_device: int | None = None,
       patience: int | None = 1,
       max_steps_per_epoch: int | None = None,
+      evals_per_epoch: int = 1,
       # LoRA-specific args.
       use_lora: bool = False,
       lora_r: int = 8,
@@ -121,12 +122,14 @@ class PyTorchFineTuner(core.FineTuner):
       batch_size_per_device: The maximum batch size that can fit on the GPU. If
         the effective `batch_size` is larger than this, gradient accumulation
         will be used automatically.
-      patience: The number of epochs to wait for improvement before early
-        stopping. If None, early stopping is disabled.
+      patience: The number of validation checks to wait for improvement before
+        early stopping. If None, early stopping is disabled.
       max_steps_per_epoch: Maximum gradient updates per epoch. If None, uses the
         full dataset. Setting this turns each "epoch" into a fixed-size training
         interval, useful for large datasets where a full pass takes too long
         between validation/checkpointing.
+      evals_per_epoch: Number of validation / early-stopping checks per epoch
+        (each epoch is split into this many training intervals).
       use_lora: Performs PEFT using LoRA.
       lora_r: The rank of LoRA.
       lora_alpha: The alpha of LoRA.
@@ -140,6 +143,7 @@ class PyTorchFineTuner(core.FineTuner):
     self.batch_size_per_device = batch_size_per_device
     self.patience = patience
     self.max_steps_per_epoch = max_steps_per_epoch
+    self.evals_per_epoch = evals_per_epoch
 
     if use_lora:
       if not isinstance(target_modules, str):
@@ -175,8 +179,8 @@ class PyTorchFineTuner(core.FineTuner):
       validation_examples: Validation examples for early stopping. If None, uses
         training examples.
       seed: Random seed for data shuffling.
-      epoch_end_callback: Optional callback called after each epoch with an
-        `EpochState` snapshot. Useful for checkpointing or logging.
+      epoch_end_callback: Optional callback called after each validation check
+        with an `EpochState` snapshot. Useful for checkpointing or logging.
     """
     validation_examples = validation_examples or examples
 
@@ -225,18 +229,18 @@ class PyTorchFineTuner(core.FineTuner):
     initial_val_loss = self._run_validation_epoch(valid_dl)
     tracker.update(initial_val_loss, self.target_model)
 
-    for epoch in range(self.max_epochs):
-      self._run_training_epoch(
-          train_iter, num_updates_per_epoch, grad_acc_steps
-      )
+    num_updates = math.ceil(num_updates_per_epoch / self.evals_per_epoch)
+    for interval in range(self.max_epochs * self.evals_per_epoch):
+      self._run_training_epoch(train_iter, num_updates, grad_acc_steps)
       val_loss = self._run_validation_epoch(valid_dl)
+      is_best = val_loss < tracker.best_loss
       tracker.update(val_loss, self.target_model)
       if epoch_end_callback is not None:
         state = EpochState(
-            epoch=epoch,
+            epoch=interval // self.evals_per_epoch,
             val_loss=val_loss,
             best_val_loss=tracker.best_loss,
-            is_best=val_loss < tracker.best_loss,
+            is_best=is_best,
             model=self.target_model,
         )
         epoch_end_callback(state)

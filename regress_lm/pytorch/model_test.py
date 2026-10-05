@@ -243,7 +243,9 @@ class ModelTest(parameterized.TestCase):
     for p1, p2 in zip(self.model.parameters(), model_microbatch.parameters()):
       torch.testing.assert_close(p1, p2, atol=1e-7, rtol=1e-5)
 
-  def test_early_stopping_with_patience(self):
+  # `patience` counts validation checks, so `evals_per_epoch` must not matter.
+  @parameterized.parameters(1, 2)
+  def test_early_stopping_with_patience(self, evals_per_epoch):
 
     class MockFineTuner(fine_tuning.PyTorchFineTuner):
       """Mock fine-tuner that allows us to control the validation losses."""
@@ -286,6 +288,7 @@ class ModelTest(parameterized.TestCase):
         ),
         max_epochs=10,  # High max_epochs to ensure early stopping is the cause.
         patience=2,
+        evals_per_epoch=evals_per_epoch,
     )
 
     # Example not used, but we need to pass something.
