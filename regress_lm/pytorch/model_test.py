@@ -313,6 +313,7 @@ class ModelTest(parameterized.TestCase):
         optimizer_factory=optimizers.unnamed(lambda p: optim.AdamW(p, lr=0.1)),
         max_epochs=5,  # Need more steps to move model.
         patience=None,
+        ema_decay=0.998,  # Averages only the LoRA adapters.
         use_lora=True,
     )
 
@@ -329,7 +330,7 @@ class ModelTest(parameterized.TestCase):
     lora_fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -10.1, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -9.66, 1)
 
     state_after = self.model.state_dict()
     updated_keys = [

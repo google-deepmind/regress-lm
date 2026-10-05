@@ -20,6 +20,7 @@ from typing import Callable, Iterator, Sequence, cast
 import peft
 from regress_lm import core
 from regress_lm.pytorch import data_utils
+from regress_lm.pytorch import ema as ema_lib
 from regress_lm.pytorch import optimizers as optimizers_lib
 import torch
 from torch import nn
@@ -104,6 +105,7 @@ class PyTorchFineTuner(core.FineTuner):
       patience: int | None = 1,
       max_steps_per_epoch: int | None = None,
       evals_per_epoch: int = 1,
+      ema_decay: float | None = None,
       # LoRA-specific args.
       use_lora: bool = False,
       lora_r: int = 8,
@@ -130,6 +132,8 @@ class PyTorchFineTuner(core.FineTuner):
         between validation/checkpointing.
       evals_per_epoch: Number of validation / early-stopping checks per epoch
         (each epoch is split into this many training intervals).
+      ema_decay: If set (e.g. 0.998), validation, early stopping and the final
+        weights use an EMA of the trainable parameters (best with mini-batches).
       use_lora: Performs PEFT using LoRA.
       lora_r: The rank of LoRA.
       lora_alpha: The alpha of LoRA.
@@ -144,6 +148,8 @@ class PyTorchFineTuner(core.FineTuner):
     self.patience = patience
     self.max_steps_per_epoch = max_steps_per_epoch
     self.evals_per_epoch = evals_per_epoch
+    self.ema_decay = ema_decay
+    self._ema = ema_lib.ParameterEMA(self.model, None)  # Replaced per run.
 
     if use_lora:
       if not isinstance(target_modules, str):
@@ -229,21 +235,23 @@ class PyTorchFineTuner(core.FineTuner):
     initial_val_loss = self._run_validation_epoch(valid_dl)
     tracker.update(initial_val_loss, self.target_model)
 
+    self._ema = ema_lib.ParameterEMA(self.target_model, self.ema_decay)
     num_updates = math.ceil(num_updates_per_epoch / self.evals_per_epoch)
     for interval in range(self.max_epochs * self.evals_per_epoch):
       self._run_training_epoch(train_iter, num_updates, grad_acc_steps)
-      val_loss = self._run_validation_epoch(valid_dl)
-      is_best = val_loss < tracker.best_loss
-      tracker.update(val_loss, self.target_model)
-      if epoch_end_callback is not None:
-        state = EpochState(
-            epoch=interval // self.evals_per_epoch,
-            val_loss=val_loss,
-            best_val_loss=tracker.best_loss,
-            is_best=is_best,
-            model=self.target_model,
-        )
-        epoch_end_callback(state)
+      with self._ema.average_parameters(self.target_model):
+        val_loss = self._run_validation_epoch(valid_dl)
+        is_best = val_loss < tracker.best_loss
+        tracker.update(val_loss, self.target_model)
+        if epoch_end_callback is not None:
+          state = EpochState(
+              epoch=interval // self.evals_per_epoch,
+              val_loss=val_loss,
+              best_val_loss=tracker.best_loss,
+              is_best=is_best,
+              model=self.target_model,
+          )
+          epoch_end_callback(state)
       if tracker.should_stop():
         break
 
@@ -270,6 +278,7 @@ class PyTorchFineTuner(core.FineTuner):
         (losses.mean() / grad_acc_steps).backward()
 
       self.optimizer.step()
+      self._ema.update(self.target_model)
 
   def _run_validation_epoch(self, valid_dl: utils.data.DataLoader) -> float:
     self.target_model.eval()

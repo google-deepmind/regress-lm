@@ -22,6 +22,7 @@ from typing import Any, Callable, Iterator
 import numpy as np
 from regress_lm import core
 from regress_lm.pytorch import data_utils
+from regress_lm.pytorch import ema as ema_lib
 from regress_lm.pytorch import model as pytorch_model
 from regress_lm.pytorch import optimizers
 import torch
@@ -84,7 +85,7 @@ def cycle_dataloader(dataloader: utils.data.DataLoader[core.Example]):
 def _copy_state_to_cpu(state: Any) -> Any:
   """Recursively clones and moves PyTorch tensors in nested dicts/lists to CPU."""
   if isinstance(state, torch.Tensor):
-    return state.detach().cpu()
+    return state.detach().to('cpu', copy=True)
   elif isinstance(state, dict):
     return {k: _copy_state_to_cpu(v) for k, v in state.items()}
   elif isinstance(state, list):
@@ -109,6 +110,7 @@ class Trainer:
       use_ddp: bool = False,
       num_data_workers: int = 0,
       compile_model: bool = True,
+      ema_decay: float | None = 0.998,  # Evals and checkpoints use EMA weights.
   ):
     # NOTE: `model` only used as a template if distributed.
     self._model = model
@@ -137,6 +139,7 @@ class Trainer:
         self._training_wrapper.named_parameters()  # pyrefly: ignore[bad-argument-type]
     )
     self._scheduler = scheduler_factory(self._optimizer)
+    self._ema = ema_lib.ParameterEMA(model, ema_decay)
     self._global_step = 0
     self._ckpt_threads: dict[str, threading.Thread] = {}
     self._acc_metrics: dict[str, torch.Tensor] = collections.defaultdict(
@@ -192,7 +195,7 @@ class Trainer:
     else:
       no_sync_ctx = contextlib.nullcontext()
 
-    with torch.no_grad(), no_sync_ctx:
+    with torch.no_grad(), no_sync_ctx, self.ema_parameters():
       for val_batch in dl:
         _, metrics = self._training_wrapper.forward(val_batch)  # pyrefly: ignore[missing-attribute]
         bsz = next(iter(val_batch.values())).size(0)
@@ -249,6 +252,7 @@ class Trainer:
       self._optimizer.step()
       self._scheduler.step()
       self._optimizer.zero_grad(set_to_none=True)
+      self._ema.update(self._model)
 
     if not flush_metrics:
       return {}
@@ -304,6 +308,7 @@ class Trainer:
 
     # Copy state dict to CPU and perform saving in a background thread.
     cpu_state = _copy_state_to_cpu(state)
+    self._ema.save(self.model, cpu_state)  # EMA weights as `model_state`.
     self._ckpt_thread = threading.Thread(
         target=lambda: save_fn(cpu_state, checkpoint_path),
     )
@@ -313,10 +318,15 @@ class Trainer:
     """Loads and returns the training state from a checkpoint file."""
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     self.model.load_state_dict(checkpoint['model_state'])
+    self._ema.load(self.model, checkpoint)  # Restores raw weights, if saved.
     self._optimizer.load_state_dict(checkpoint['optimizer_state'])
     self._scheduler.load_state_dict(checkpoint['scheduler_state'])
     self._global_step = checkpoint['global_step']
     return checkpoint
+
+  def ema_parameters(self) -> contextlib.AbstractContextManager[None]:
+    """Context in which `model` holds the EMA weights (no-op without EMA)."""
+    return self._ema.average_parameters(self.model)
 
   @property
   def step(self) -> float:

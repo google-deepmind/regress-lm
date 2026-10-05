@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
+
 from regress_lm import core
 from regress_lm import tokenizers
 from regress_lm import vocabs
 from regress_lm.pytorch import data_utils
 from regress_lm.pytorch import model as model_lib
 from regress_lm.pytorch import training
+import torch
 from torch import optim
 from torch.optim import lr_scheduler
 
@@ -66,6 +69,42 @@ class TrainingTest(absltest.TestCase):
       self.trainer.run_train_step(batch)
 
     self.trainer.run_eval_epoch(self.trainer.train_dl)
+
+  def _save(self) -> str:
+    path = self.create_tempfile().full_path
+    self.trainer.save_checkpoint(path)
+    self.trainer._ckpt_thread.join()  # pylint: disable=protected-access
+    return path
+
+  def _raw_and_ema_states(self) -> tuple[Any, Any]:
+    raw = {k: v.clone() for k, v in self.model.state_dict().items()}
+    with self.trainer.ema_parameters():
+      ema = {k: v.clone() for k, v in self.model.state_dict().items()}
+    return raw, ema
+
+  def test_ema(self):
+    old_path = self._save()  # No EMA updates yet, as in older checkpoints.
+    batch = next(iter(self.trainer.train_dl))
+    for _ in range(2):  # EMA is on by default.
+      self.trainer.run_train_step(batch)
+    raw, ema = self._raw_and_ema_states()
+    self.assertFalse(all(torch.equal(ema[k], raw[k]) for k in raw))
+    self.trainer.run_eval_epoch(self.trainer.train_dl)
+    torch.testing.assert_close(self.model.state_dict(), raw)  # Restored.
+
+    path = self._save()
+    self.trainer.run_train_step(batch)
+    expected = self._raw_and_ema_states()
+    ckpt = self.trainer.load_checkpoint(path)
+    torch.testing.assert_close(ckpt['model_state'], ema)  # Read downstream.
+    torch.testing.assert_close(self._raw_and_ema_states(), (raw, ema))
+    self.trainer.run_train_step(batch)  # Resumes exactly.
+    torch.testing.assert_close(self._raw_and_ema_states(), expected)
+
+    ckpt = self.trainer.load_checkpoint(old_path)
+    self.assertNotIn('train_model_state', ckpt)
+    for state in self._raw_and_ema_states():  # EMA is a no-op again.
+      torch.testing.assert_close(state, ckpt['model_state'])
 
 
 if __name__ == '__main__':

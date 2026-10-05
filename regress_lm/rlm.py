@@ -52,6 +52,7 @@ class RegressLM:
         patience=kwargs.get("patience", 1),
         max_steps_per_epoch=kwargs.get("max_steps_per_epoch", None),
         evals_per_epoch=kwargs.get("evals_per_epoch", 1),
+        ema_decay=kwargs.get("ema_decay", None),
         use_lora=kwargs.get("use_lora", False),
         lora_r=kwargs.get("lora_r", 8),
         lora_alpha=kwargs.get("lora_alpha", 16),
