@@ -31,7 +31,7 @@ import transformers
 
 # pylint: disable=g-import-not-at-top
 try:
-  import mamba_ssm  # pytype: disable=import-error
+  import mamba_ssm  # pyrefly: ignore[missing-import]
 except ImportError:
   mamba_ssm = None
 
@@ -255,7 +255,7 @@ class MambaEncoder(BaseEncoder):
     self.layers = nn.ModuleList([
         nn.Sequential(
             nn.LayerNorm(d_model),
-            mamba_ssm.Mamba2(d_model=d_model, **mamba_kwargs),  # pytype: disable=attribute-error
+            mamba_ssm.Mamba2(d_model=d_model, **mamba_kwargs),  # pyrefly: ignore[missing-attribute]
         )
         for _ in range(num_layers)
     ])
@@ -557,7 +557,7 @@ class PerformerEncoder(BaseEncoder):
     src = self.embedding(src_ids)
 
     if self.training and self.redraw_interval is not None:
-      self.training_calls += 1  # pyrefly: ignore[unsupported-operation]
+      self.training_calls += 1
       if self.training_calls.item() % self.redraw_interval == 0:
         for layer in self.layers:
           layer.redraw_projection_matrix(src.device)

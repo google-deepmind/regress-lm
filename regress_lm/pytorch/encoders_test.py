@@ -102,7 +102,7 @@ class PerformerEncoderTest(parameterized.TestCase):
         d_model=d_model,
         num_layers=2,
         max_len=seq_len,
-        kernel_name=kernel_name,  # pytype: disable=wrong-arg-types
+        kernel_name=kernel_name,  # pyrefly: ignore[bad-argument-type]
     )
     output = encoder(src_ids, src_key_padding_mask=None)
 

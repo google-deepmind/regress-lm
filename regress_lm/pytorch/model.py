@@ -14,7 +14,6 @@
 
 """PyTorch implementation of a RegressLM."""
 
-# pytype:disable=attribute-error
 from concurrent import futures
 import dataclasses
 import functools
@@ -37,7 +36,7 @@ ThreadPoolExecutor = futures.ThreadPoolExecutor
 
 class _SequentialExecutor(futures.Executor):
 
-  def map(
+  def map(  # pyrefly: ignore[bad-override]
       self, fn, *iterables, timeout: float | None = None, chunksize: int = 1
   ):
     del timeout, chunksize
@@ -199,14 +198,14 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     )
 
     # Average loss per non-padded token.
-    loss_mask = (targets != self.cfg.decoder_vocab.bos_pad_id).float()
+    loss_mask = (targets != self.cfg.decoder_vocab.bos_pad_id).float()  # pyrefly: ignore[missing-attribute]
     num_tokens = loss_mask.sum(dim=1).clamp(min=1)
     loss_per_example = ce_loss_per_tokens.sum(dim=1) / num_tokens
 
     if self.cfg.z_loss_coef is not None:
       log_z = torch.logsumexp(logits, dim=-1)
       z_loss_per_token = self.cfg.z_loss_coef * (log_z**2)
-      loss_mask = (targets != self.cfg.decoder_vocab.bos_pad_id).float()
+      loss_mask = (targets != self.cfg.decoder_vocab.bos_pad_id).float()  # pyrefly: ignore[missing-attribute]
       z_loss_per_example = (z_loss_per_token * loss_mask).sum(dim=1)
       loss_per_example = loss_per_example + z_loss_per_example
 
@@ -223,7 +222,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
   ) -> tuple[Tensor, np.ndarray]:
     inputs = self.converter.trim_padding(inputs)
     encoder_input = self.to_device(inputs['encoder_input'])  # (B, L_src)
-    batch_size = encoder_input.shape[0]
+    batch_size = encoder_input.shape[0]  # pyrefly: ignore[missing-attribute]
     expanded_batch_size = batch_size * num_samples
     # memory: (B, L_src, D_model), memory_key_padding_mask: (B, L_src)
     # These are shared by (not copied for) the num_samples decoded sequences.
@@ -318,7 +317,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
 
     dec_target = self.to_device(examples['decoder_target'])
     true_log_probs = torch.gather(
-        log_probs, dim=2, index=dec_target.unsqueeze(-1)
+        log_probs, dim=2, index=dec_target.unsqueeze(-1)  # pyrefly: ignore[missing-attribute]
     )
 
     pad_mask = dec_target != self.cfg.decoder_vocab.bos_pad_id

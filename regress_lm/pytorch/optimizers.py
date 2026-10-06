@@ -37,10 +37,10 @@ class HybridOptimizer(optim.Optimizer):
     self.optimizer_1 = optimizer_1
     self.optimizer_2 = optimizer_2
     self.defaults = {}
-    self.state = {}  # pytype: disable=annotation-type-mismatch
+    self.state = {}  # pyrefly: ignore[bad-assignment]
 
   @property
-  def param_groups(self):  # pyrefly: ignore[bad-override]
+  def param_groups(self):
     return self.optimizer_1.param_groups + self.optimizer_2.param_groups
 
   @param_groups.setter
