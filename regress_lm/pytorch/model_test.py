@@ -317,7 +317,7 @@ class ModelTest(parameterized.TestCase):
     lora_fine_tuner.fine_tune(raw_examples)
 
     log_probs_after = self.model.log_prob(examples_tensors)
-    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -9.66, 1)
+    self.assertAlmostEqual(log_probs_after[0].squeeze().item(), -6.45, 1)
 
     state_after = self.model.state_dict()
     updated_keys = [

@@ -106,6 +106,7 @@ class PyTorchFineTuner(core.FineTuner):
       max_steps_per_epoch: int | None = None,
       evals_per_epoch: int = 1,
       ema_decay: float | None = None,
+      ema_warmup: float = 1.0,
       # LoRA-specific args.
       use_lora: bool = False,
       lora_r: int = 8,
@@ -134,6 +135,9 @@ class PyTorchFineTuner(core.FineTuner):
         (each epoch is split into this many training intervals).
       ema_decay: If set (e.g. 0.998), validation, early stopping and the final
         weights use an EMA of the trainable parameters (best with mini-batches).
+      ema_warmup: Decay warm-up constant of the EMA (see `ema.ParameterEMA`).
+        The default 1 averages all iterates until the EMA window is reached,
+        which suits short runs from already good weights.
       use_lora: Performs PEFT using LoRA.
       lora_r: The rank of LoRA.
       lora_alpha: The alpha of LoRA.
@@ -149,6 +153,7 @@ class PyTorchFineTuner(core.FineTuner):
     self.max_steps_per_epoch = max_steps_per_epoch
     self.evals_per_epoch = evals_per_epoch
     self.ema_decay = ema_decay
+    self.ema_warmup = ema_warmup
     self._ema = ema_lib.ParameterEMA(self.model, None)  # Replaced per run.
 
     if use_lora:
@@ -235,7 +240,9 @@ class PyTorchFineTuner(core.FineTuner):
     initial_val_loss = self._run_validation_epoch(valid_dl)
     tracker.update(initial_val_loss, self.target_model)
 
-    self._ema = ema_lib.ParameterEMA(self.target_model, self.ema_decay)
+    self._ema = ema_lib.ParameterEMA(
+        self.target_model, self.ema_decay, self.ema_warmup
+    )
     num_updates = math.ceil(num_updates_per_epoch / self.evals_per_epoch)
     for interval in range(self.max_epochs * self.evals_per_epoch):
       self._run_training_epoch(train_iter, num_updates, grad_acc_steps)

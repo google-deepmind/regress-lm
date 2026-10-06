@@ -111,6 +111,7 @@ class Trainer:
       num_data_workers: int = 0,
       compile_model: bool = True,
       ema_decay: float | None = 0.998,  # Evals and checkpoints use EMA weights.
+      ema_warmup: float = 9.0,  # See `ema.ParameterEMA`.
   ):
     # NOTE: `model` only used as a template if distributed.
     self._model = model
@@ -139,7 +140,7 @@ class Trainer:
         self._training_wrapper.named_parameters()  # pyrefly: ignore[bad-argument-type]
     )
     self._scheduler = scheduler_factory(self._optimizer)
-    self._ema = ema_lib.ParameterEMA(model, ema_decay)
+    self._ema = ema_lib.ParameterEMA(model, ema_decay, ema_warmup)
     self._global_step = 0
     self._ckpt_threads: dict[str, threading.Thread] = {}
     self._acc_metrics: dict[str, torch.Tensor] = collections.defaultdict(

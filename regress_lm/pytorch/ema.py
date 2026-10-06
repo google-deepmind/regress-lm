@@ -28,22 +28,31 @@ def _params(model: nn.Module) -> list[torch.Tensor]:
 class ParameterEMA:
   """EMA of a model's trainable parameters, kept in float32.
 
-  As in `tf.train.ExponentialMovingAverage(num_updates=...)`, the decay warms up
-  as `min(decay, n / (n + 9))` at the n-th update (from 0): the first update
-  copies the parameters. `decay=None` disables it, making all methods no-ops.
+  The decay warms up as `min(decay, n / (n + warmup))` at the n-th update (from
+  0), so the first update copies the parameters. `warmup=9` is
+  `tf.train.ExponentialMovingAverage(num_updates=...)`, which quickly forgets
+  early iterates (training from scratch); `warmup=1` is the running mean until
+  the window reaches `1 / (1 - decay)` updates (fine-tuning). `decay=None`
+  disables the EMA, making all methods no-ops.
   """
 
-  def __init__(self, model: nn.Module, decay: float | None = 0.998):
+  def __init__(
+      self, model: nn.Module, decay: float | None = 0.998, warmup: float = 9.0
+  ):
     if decay is not None and not 0.0 <= decay < 1.0:
       raise ValueError(f"decay ({decay}) must be in [0, 1).")
+    if warmup < 0.0:
+      raise ValueError(f"warmup ({warmup}) must be >= 0.")
     self.decay = decay
+    self.warmup = warmup
     self.load(model, {})  # Initializes `shadow` and `num_updates`.
 
   def update(self, model: nn.Module) -> None:
     """Folds in the current parameters. Call after each optimizer step."""
     if self.decay is None:
       return
-    decay = min(self.decay, self.num_updates / (self.num_updates + 9))
+    n = self.num_updates
+    decay = min(self.decay, n / (n + self.warmup)) if n + self.warmup else 0.0
     params = [p.float() for p in _params(model)]
     torch._foreach_lerp_(self.shadow, params, 1.0 - decay)  # pylint: disable=protected-access
     self.num_updates += 1

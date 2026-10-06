@@ -64,9 +64,26 @@ class ParameterEMATest(absltest.TestCase):
       with ema.average_parameters(self.model):
         self._assert_params(5.0, 5.0)
 
+  def test_warmup(self):
+    # warmup=1: running mean (decays 0, 1/2, 2/3) until 3/4 exceeds the decay,
+    # i.e. 0.7 * mean(1, 2, 3) + 0.3 * 4.
+    ema = ema_lib.ParameterEMA(self.model, decay=0.7, warmup=1.0)
+    for value in (1.0, 2.0, 3.0, 4.0):
+      self._fill(value)
+      ema.update(self.model)
+    torch.testing.assert_close(ema.shadow[0], torch.tensor([[2.6]]))
+    # warmup=0: copy, then the decay from the second update on.
+    ema = ema_lib.ParameterEMA(self.model, decay=0.7, warmup=0.0)
+    for value in (1.0, 2.0):
+      self._fill(value)
+      ema.update(self.model)
+    torch.testing.assert_close(ema.shadow[0], torch.tensor([[1.3]]))
+
   def test_invalid_decay(self):
     with self.assertRaises(ValueError):
       ema_lib.ParameterEMA(self.model, decay=1.0)
+    with self.assertRaises(ValueError):
+      ema_lib.ParameterEMA(self.model, warmup=-1.0)
 
 
 if __name__ == "__main__":
