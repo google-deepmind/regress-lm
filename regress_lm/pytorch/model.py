@@ -20,6 +20,7 @@ import functools
 from typing import Any, Sequence
 import numpy as np
 from regress_lm import core
+from regress_lm import tokenizers
 from regress_lm import vocabs
 from regress_lm.pytorch import architecture
 import torch
@@ -242,43 +243,25 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         dtype=torch.long,
         device=self.device,
     )
-    with self.cfg.make_threadpool() as executor:
-      for step_idx in range(self.cfg.decode_len):
-        ids_step = generated_sequences_ids[:, :step_idx].to('cpu')
+    for step_idx in range(self.cfg.decode_len):
+      curr_mask = self._next_token_mask(generated_sequences_ids[:, :step_idx])
 
-        def get_allowed_tokens(i: int) -> list[int]:
-          prev_tokens = ids_step[i].tolist()  # pylint: disable=cell-var-from-loop
-          return self.cfg.decoder_vocab.possible_next_token_ids(prev_tokens)
+      # Get logits for the next token for all (B * num_samples) sequences
+      # Shape: (B*S, V)
+      logits = self.encoder_decoder.next_token_logits(
+          current_tgt_ids, memory, memory_key_padding_mask
+      )
+      masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
 
-        results = executor.map(get_allowed_tokens, range(expanded_batch_size))
+      # Apply temperature sampling, 1 token for each of the B*S sequences
+      probs = F.softmax(masked_logits / temperature, dim=-1)
+      token_ids = torch.multinomial(probs, num_samples=1)  # (B*S, 1)
+      # Store the predicted token IDs
+      generated_sequences_ids[:, step_idx] = token_ids.squeeze(-1)
 
-        curr_mask = torch.zeros(
-            (expanded_batch_size, len(self.cfg.decoder_vocab)),
-            dtype=torch.float32,
-            device='cpu',
-        )
-        for i, allowed_inds in enumerate(results):
-          if allowed_inds:
-            curr_mask[i, allowed_inds] = 1.0
-
-        curr_mask = curr_mask.to(self.device)
-
-        # Get logits for the next token for all (B * num_samples) sequences
-        # Shape: (B*S, V)
-        logits = self.encoder_decoder.next_token_logits(
-            current_tgt_ids, memory, memory_key_padding_mask
-        )
-        masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
-
-        # Apply temperature sampling, 1 token for each of the B*S sequences
-        probs = F.softmax(masked_logits / temperature, dim=-1)
-        token_ids = torch.multinomial(probs, num_samples=1)  # (B*S, 1)
-        # Store the predicted token IDs
-        generated_sequences_ids[:, step_idx] = token_ids.squeeze(-1)
-
-        # Prepare input for the next step, but only if not the last float token
-        if step_idx < self.cfg.decode_len - 1:
-          current_tgt_ids = torch.cat([current_tgt_ids, token_ids], dim=1)
+      # Prepare input for the next step, but only if not the last float token
+      if step_idx < self.cfg.decode_len - 1:
+        current_tgt_ids = torch.cat([current_tgt_ids, token_ids], dim=1)
 
     # Reshape outputs back to (B, num_samples, L_decode)
     final_decoded_ids = generated_sequences_ids.view(
@@ -290,22 +273,26 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     output_floats = np.empty(
         (batch_size, num_samples, self.cfg.max_num_objs), dtype=object
     )
-
-    def _decode_sample(idx: int) -> list:  # pylint:disable=g-bare-generic
-      b, s = divmod(idx, num_samples)
-      return self.cfg.decoder_vocab.from_token_ids(
-          final_decoded_ids[b, s, :].tolist()
-      )
-
-    with self.cfg.make_threadpool() as executor:
-      results = list(
-          executor.map(_decode_sample, range(batch_size * num_samples))
-      )
-    for idx, floats in enumerate(results):
-      b, s = divmod(idx, num_samples)
-      output_floats[b, s, :] = floats
+    vocab = self.cfg.decoder_vocab
+    for b, samples in enumerate(final_decoded_ids.tolist()):
+      for s, token_ids in enumerate(samples):
+        output_floats[b, s, :] = vocab.from_token_ids(token_ids)
 
     return final_decoded_ids, output_floats
+
+  def _next_token_mask(self, prev_ids: Tensor) -> Tensor:
+    """Returns a (B*S or 1, V) 0/1 mask of the allowed next tokens."""
+    vocab = self.cfg.decoder_vocab
+    if isinstance(vocab.tokenizer, tokenizers.PositionalDecoderTokenizer):
+      # The allowed tokens depend only on the prefix length, which all
+      # sequences share: build one row from the first prefix and broadcast it.
+      prev_ids = prev_ids[:1]
+    allowed = [vocab.possible_next_token_ids(p) for p in prev_ids.tolist()]
+    rows = np.repeat(range(len(allowed)), [len(ids) for ids in allowed])
+    cols = np.concatenate(allowed, dtype=np.int64)
+    mask = torch.zeros((len(allowed), len(vocab)))
+    mask[rows, cols] = 1.0  # One index_put; per-row writes are slow.
+    return mask.to(self.device)
 
   def log_prob(self, examples: dict[str, Tensor]) -> Tensor:
     examples = self.converter.trim_padding(examples)

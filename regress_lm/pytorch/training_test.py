@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import tempfile
 from typing import Any
 
 from regress_lm import core
@@ -71,7 +73,8 @@ class TrainingTest(absltest.TestCase):
     self.trainer.run_eval_epoch(self.trainer.train_dl)
 
   def _save(self) -> str:
-    path = self.create_tempfile().full_path
+    # Not create_tempfile(): absl flags are unparsed under pytest (GitHub).
+    path = os.path.join(tempfile.mkdtemp(), 'ckpt.pt')
     self.trainer.save_checkpoint(path)
     self.trainer._ckpt_thread.join()  # pylint: disable=protected-access
     return path

@@ -183,30 +183,17 @@ class ModelTest(parameterized.TestCase):
     np.testing.assert_array_equal(decoded_ids[0, 0], [37, 37, 37, 37, 37, 37])
     np.testing.assert_array_equal(decoded_ids[0, 1], [34, 34, 34, 34, 34, 34])
 
-  @parameterized.parameters(True, False)
-  def test_multiobjective(self, add_separators: bool):
-    tokenizer = self.decoder_tokenizer
-    if add_separators:
-      tokenizer = tokenizers.AppendPadTokenizer(tokenizer)
-
-    cfg = dataclasses.replace(
-        self.cfg,
-        decoder_vocab=vocabs.DecoderVocab(tokenizer),
-        max_input_len=4,
-        max_num_objs=2,
-    )
+  def test_multiobjective(self):
+    cfg = dataclasses.replace(self.cfg, max_input_len=4, max_num_objs=2)
     model = cfg.make_model()
 
     examples = [core.ExampleInput(x='hello'), core.ExampleInput(x='world')]
     batch = model.converter.convert_inputs(examples)
 
     decoded_ids, output_floats = model.decode(batch, num_samples=1024)
-    if not add_separators:  # 12 = 2 objectives * 6 tokens per objective.
-      self.assertEqual(tuple(decoded_ids.shape), (2, 1024, 12))
-      self.assertEqual(cfg.decode_len, 12)
-    else:  # +2 for padding/separators.
-      self.assertEqual(tuple(decoded_ids.shape), (2, 1024, 14))
-      self.assertEqual(cfg.decode_len, 14)
+    # 12 = 2 objectives * 6 tokens per objective.
+    self.assertEqual(tuple(decoded_ids.shape), (2, 1024, 12))
+    self.assertEqual(cfg.decode_len, 12)
 
     # Now 2 objectives for last axis.
     self.assertEqual(tuple(output_floats.shape), (2, 1024, 2))

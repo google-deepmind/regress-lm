@@ -72,7 +72,18 @@ class DecoderTokenizer(abc.ABC, Generic[ObjectT]):
     """Converts a string of tokens to an object."""
 
 
-class P10Tokenizer(DecoderTokenizer[float]):
+class PositionalDecoderTokenizer(DecoderTokenizer[ObjectT]):
+  """Tokenizer whose possible tokens depend only on the position in the object."""
+
+  @abc.abstractmethod
+  def possible_tokens_at(self, index: int) -> OrderedSet[str]:
+    """Returns ordered set of tokens possible at `index` of an object."""
+
+  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
+    return self.possible_tokens_at(len(prev_tokens))
+
+
+class P10Tokenizer(PositionalDecoderTokenizer[float]):
   """Uses P10 tokenization from https://arxiv.org/abs/2112.01898.
 
   A float f can be represented as:
@@ -108,8 +119,7 @@ class P10Tokenizer(DecoderTokenizer[float]):
   def num_tokens_per_obj(self) -> int:
     return 2 + self.num_digits
 
-  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
-    index = len(prev_tokens)
+  def possible_tokens_at(self, index: int) -> OrderedSet[str]:
     if index < 0 or index >= self.num_tokens_per_obj:
       raise ValueError(f'Index {index} out of bounds.')
 
@@ -176,7 +186,7 @@ class P10Tokenizer(DecoderTokenizer[float]):
     return float(sign * mantissa * 10**exp)
 
 
-class IEEEFloatTokenizer(DecoderTokenizer[float]):
+class IEEEFloatTokenizer(PositionalDecoderTokenizer[float]):
   """More official float tokenizer, minimizing the use of dedicated tokens.
 
   Follows IEEE-type standard.
@@ -213,8 +223,7 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
   def num_tokens_per_obj(self) -> int:
     return 2 + self.num_exponent_digits + self.num_mantissa_digits
 
-  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
-    index = len(prev_tokens)
+  def possible_tokens_at(self, index: int) -> OrderedSet[str]:
     if index < 0 or index >= self.num_tokens_per_obj:
       raise ValueError(f'Index {index} out of bounds.')
 
@@ -288,7 +297,7 @@ class IEEEFloatTokenizer(DecoderTokenizer[float]):
     return (self.base**max_exponent) * max_mantissa
 
 
-class NormalizedTokenizer(DecoderTokenizer[float]):
+class NormalizedTokenizer(PositionalDecoderTokenizer[float]):
   """Tokenizer which supports only numbers within [0,1].
 
   A float `f` in [0,1] is represented by a sequence of integer tokens in a
@@ -317,9 +326,9 @@ class NormalizedTokenizer(DecoderTokenizer[float]):
   def all_tokens(self) -> OrderedSet[str]:
     return OrderedSet([_to_token(i) for i in range(self.base)])
 
-  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
-    if len(prev_tokens) >= self.length:
-      raise ValueError(f'Index {len(prev_tokens)} out of bounds.')
+  def possible_tokens_at(self, index: int) -> OrderedSet[str]:
+    if index >= self.length:
+      raise ValueError(f'Index {index} out of bounds.')
     # For this tokenizer, any digit can appear at any position.
     return self.all_tokens()
 
@@ -419,39 +428,3 @@ class AddSpecialValues(DecoderTokenizer[str | float]):
     if token in self._special_value_map:
       return self._special_value_map[token]
     return self._tokenizer.from_tokens(tokens)
-
-
-class AppendPadTokenizer(DecoderTokenizer[ObjectT]):
-  """Wraps a tokenizer to append a <pad> token after each object.
-
-  This is a simple way to create a separator for multi-objective tasks. Note
-  our model will mask out any <pad> tokens when training.
-  """
-
-  def __init__(
-      self, tokenizer: DecoderTokenizer[ObjectT], *, pad_token: str = '<pad>'
-  ):
-    self.tokenizer = tokenizer
-    self.pad_token = pad_token
-
-  @property
-  def num_tokens_per_obj(self) -> int:
-    return self.tokenizer.num_tokens_per_obj + 1
-
-  def all_tokens(self) -> OrderedSet[str]:
-    return self.tokenizer.all_tokens()  # '<pad>' is not included.
-
-  def possible_next_tokens(self, prev_tokens: list[str]) -> OrderedSet[str]:
-    if len(prev_tokens) >= self.num_tokens_per_obj:
-      raise ValueError(f'Index {len(prev_tokens)} out of bounds.')
-    if len(prev_tokens) == self.num_tokens_per_obj - 1:  # Last position.
-      return OrderedSet([self.pad_token])
-    return self.tokenizer.possible_next_tokens(prev_tokens)  # Normal case.
-
-  def to_tokens(self, obj: ObjectT, /) -> list[str]:
-    return self.tokenizer.to_tokens(obj) + [self.pad_token]
-
-  def from_tokens(self, tokens: list[str], /) -> ObjectT:
-    if not tokens or tokens[-1] != self.pad_token:
-      raise ValueError(f'Expected a "{self.pad_token}" token at the end.')
-    return self.tokenizer.from_tokens(tokens[:-1])
