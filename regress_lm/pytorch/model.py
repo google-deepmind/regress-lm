@@ -14,7 +14,6 @@
 
 """PyTorch implementation of a RegressLM."""
 
-from concurrent import futures
 import dataclasses
 import functools
 from typing import Any, Sequence
@@ -32,17 +31,6 @@ NEG_INF = -1.0e7
 # Dict Keys: "encoder_input", "decoder_input", "decoder_target"
 Tensor = torch.Tensor
 
-ThreadPoolExecutor = futures.ThreadPoolExecutor
-
-
-class _SequentialExecutor(futures.Executor):
-
-  def map(  # pyrefly: ignore[bad-override]
-      self, fn, *iterables, timeout: float | None = None, chunksize: int = 1
-  ):
-    del timeout, chunksize
-    return map(fn, *iterables)
-
 
 @dataclasses.dataclass(frozen=True)
 class PyTorchModelConfig:
@@ -59,7 +47,6 @@ class PyTorchModelConfig:
 
   # Other settings
   z_loss_coef: float | None = None
-  num_workers: int | None = None  # Set < 1 to disable threading. None is auto.
 
   @property
   def decode_len(self) -> int:
@@ -73,12 +60,6 @@ class PyTorchModelConfig:
     """Factory method to create a model from this config."""
     return PyTorchModel(self)
 
-  def make_threadpool(self) -> futures.Executor:
-    if self.num_workers is None or self.num_workers > 1:
-      return ThreadPoolExecutor(max_workers=self.num_workers)
-    else:
-      return _SequentialExecutor()
-
 
 class PyTorchConverter(core.Converter[Tensor]):
   """Converts high-level inputs and examples to batched low-level inputs."""
@@ -90,12 +71,7 @@ class PyTorchConverter(core.Converter[Tensor]):
       self, inputs: Sequence[core.ExampleInput]
   ) -> dict[str, Tensor]:
     strings = [example.x for example in inputs]
-
-    with self.cfg.make_threadpool() as executor:
-      encoder_token_ids = list(
-          executor.map(self.cfg.encoder_vocab.to_token_ids, strings)
-      )
-
+    encoder_token_ids = self.cfg.encoder_vocab.batch_to_token_ids(strings)
     batch_size, max_len = len(strings), self.cfg.max_input_len
 
     # Pre-allocate padded arrays for efficiency + inject in-place.
@@ -120,12 +96,7 @@ class PyTorchConverter(core.Converter[Tensor]):
       self, examples: Sequence[core.Example]
   ) -> dict[str, Tensor]:
     y_values = [example.y for example in examples]
-
-    with self.cfg.make_threadpool() as executor:
-      y_tokens_list = list(
-          executor.map(self.cfg.decoder_vocab.to_token_ids, y_values)
-      )
-
+    y_tokens_list = self.cfg.decoder_vocab.batch_to_token_ids(y_values)
     batch_size, dec_len = len(y_values), self.cfg.decode_len
     pad_id = self.cfg.decoder_vocab.bos_pad_id
 

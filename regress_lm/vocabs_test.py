@@ -15,7 +15,9 @@
 """Tests for vocab classes."""
 
 import pathlib
+import tempfile
 from regress_lm import vocabs
+import transformers
 from absl.testing import absltest
 
 
@@ -26,6 +28,9 @@ class BasicEnglishVocabTest(absltest.TestCase):
     self.assertEqual(vocab.pad_id, 0)
     self.assertLen(vocab, 4)
     self.assertEqual(vocab.to_token_ids("hello world foo"), [2, 3, 1])
+    self.assertEqual(
+        vocab.batch_to_token_ids(["hello world", "foo"]), [[2, 3], [1]]
+    )
 
 
 class StructuredTextVocabTest(absltest.TestCase):
@@ -63,6 +68,34 @@ class SentencePieceVocabTest(absltest.TestCase):
     self.assertEqual(vocab.pad_id, 0)
     self.assertLen(vocab, 32100)
     self.assertEqual(vocab.to_token_ids("hello world"), [21820, 296])
+    self.assertEqual(
+        vocab.batch_to_token_ids(["hello world", ""]), [[21820, 296], []]
+    )
+
+
+class HuggingFaceVocabTest(absltest.TestCase):
+
+  def test_batch_matches_single(self):
+    fast = vocabs.BasicEnglishVocab(["hello", "world"]).tokenizer
+    fast.enable_padding(length=8)  # Stale backend state must not leak.
+    fast.enable_truncation(max_length=1)
+    for tokenizer in [
+        transformers.PreTrainedTokenizerFast(
+            tokenizer_object=fast, pad_token="<pad>"
+        ),
+        transformers.ByT5Tokenizer(),  # Python-backed.
+    ]:
+      # Not create_tempdir(): absl flags are unparsed under pytest (GitHub).
+      path = tempfile.mkdtemp()
+      tokenizer.save_pretrained(path)
+      vocab = vocabs.HuggingFaceVocab(path)
+
+      texts = ["hello world", "héllo", ""]
+      self.assertEqual(
+          vocab.batch_to_token_ids(texts),
+          [vocab.to_token_ids(t) for t in texts],
+      )
+      self.assertEqual(vocab.batch_to_token_ids([]), [])
 
 
 if __name__ == "__main__":

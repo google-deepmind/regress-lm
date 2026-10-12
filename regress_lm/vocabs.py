@@ -18,9 +18,9 @@ import abc
 import pathlib
 from typing import Any, Generic, Sequence, TypeVar
 from regress_lm import tokenizers
+import sentencepiece as spp
 import tokenizers as ht
 import transformers
-import sentencepiece as spp
 import sentencepiece as spt
 
 ObjectT = TypeVar("ObjectT")
@@ -32,6 +32,10 @@ class BaseVocab(abc.ABC, Generic[ObjectT]):
   @abc.abstractmethod
   def to_token_ids(self, obj: ObjectT, /) -> list[int]:
     """Converts object (e.g. text) to token ids."""
+
+  def batch_to_token_ids(self, objs: Sequence[ObjectT], /) -> list[list[int]]:
+    """Converts a batch of objects to token ids."""
+    return [self.to_token_ids(o) for o in objs]
 
   @abc.abstractmethod
   def __len__(self) -> int:
@@ -50,7 +54,7 @@ class EncoderVocab(BaseVocab[ObjectT]):
     """Returns the pad id."""
 
 
-class DecoderVocab(BaseVocab[ObjectT]):
+class DecoderVocab(BaseVocab[ObjectT | Sequence[ObjectT]]):
   """Vocabulary class for decoders.
 
   Supports single objective and multi-objective cases.
@@ -277,6 +281,10 @@ class SentencePieceVocab(EncoderVocab[str]):
     """Converts text to a list of token ids using the SentencePiece model."""
     return self.sp_processor.EncodeAsIds(obj)
 
+  def batch_to_token_ids(self, objs: Sequence[str], /) -> list[list[int]]:
+    # OSS sentencepiece encodes lists natively with multithreaded C++.
+    return self.sp_processor.Encode(list(objs))
+
   @property
   def pad_id(self) -> int:
     """Returns the pad id defined in the SentencePiece model."""
@@ -344,6 +352,13 @@ class HuggingFaceVocab(EncoderVocab[str]):
 
   def to_token_ids(self, obj: str, /) -> list[int]:
     return self.tokenizer.encode(obj)
+
+  def batch_to_token_ids(self, objs: Sequence[str], /) -> list[list[int]]:
+    if not objs:  # HF tokenizers raise on empty batches.
+      return []
+    # Same padding / truncation / special-token handling as `encode`, but
+    # natively batched (multithreaded Rust) for fast tokenizers.
+    return self.tokenizer(list(objs), return_attention_mask=False)["input_ids"]
 
   @property
   def pad_id(self) -> int:
