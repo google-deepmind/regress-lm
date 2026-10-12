@@ -626,7 +626,10 @@ class T5GemmaEncoder(BaseEncoder):
       config.vocab_size = vocab_size
       model = T5GemmaForConditionalGeneration(config)
 
-    self.encoder = model.get_encoder()
+    # `from_pretrained` leaves T5Gemma2's nested text model in its checkpoint
+    # dtype (bf16), where small optimizer updates round away. Keep all weights
+    # in `dtype` (bf16 compute comes from autocast).
+    self.encoder = model.get_encoder().to(dtype)
 
     # Remove multimodal components (T5Gemma2) if not needed -- unneeded params
     # cause errors during DDP setup.

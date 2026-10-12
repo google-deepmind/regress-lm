@@ -346,6 +346,8 @@ class T5Gemma2EncoderTest(parameterized.TestCase):
         vocab_size=len(vocab) + vocab_size_diff, model_name=model_name
     )
     self.assertEqual(encoder.hidden_dim, d_model)
+    # All weights are float32 (the checkpoint's text model is bf16).
+    self.assertTrue(all(p.dtype == torch.float32 for p in encoder.parameters()))
 
     output = encoder(src_ids, src_key_padding_mask)
     self.assertEqual(output.shape, (batch_size, seq_len, d_model))

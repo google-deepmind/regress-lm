@@ -76,7 +76,7 @@ class TrainingTest(absltest.TestCase):
     # Not create_tempfile(): absl flags are unparsed under pytest (GitHub).
     path = os.path.join(tempfile.mkdtemp(), 'ckpt.pt')
     self.trainer.save_checkpoint(path)
-    self.trainer._ckpt_thread.join()  # pylint: disable=protected-access
+    self.trainer.wait_for_checkpoints()
     return path
 
   def _raw_and_ema_states(self) -> tuple[Any, Any]:

@@ -285,19 +285,32 @@ class Trainer:
       save_fn: Callable[[dict[str, Any], str], None] = torch.save,
       extra_state: dict[str, Any] | None = None,
       thread_name: str = 'default',
+      wait_if_busy: bool = False,
   ) -> None:
-    """Saves the current training state to a checkpoint file asynchronously."""
+    """Saves the current training state to a checkpoint file asynchronously.
 
-    # If a previous checkpoint thread with the same name is still running,
-    # skip this save to avoid blocking the other GPUs at dist.barrier().
+    Args:
+      checkpoint_path: Destination of the checkpoint.
+      save_fn: Writes the (CPU) state to `checkpoint_path`.
+      extra_state: Additional entries for the checkpoint dict.
+      thread_name: Saves sharing a name run one at a time.
+      wait_if_busy: If a save with the same `thread_name` is still running, wait
+        for it (e.g. a newer best checkpoint must not be dropped) instead of
+        skipping this save (fine for periodic checkpoints).
+    """
+
+    # If a previous checkpoint thread with the same name is still running, by
+    # default skip this save to avoid blocking the other GPUs at dist.barrier().
     prev = self._ckpt_threads.get(thread_name)
     if prev is not None and prev.is_alive():
-      logging.warning(
-          'Background checkpoint [%s] still saving. Skipping save to %s.',
-          thread_name,
-          checkpoint_path,
-      )
-      return
+      if not wait_if_busy:
+        logging.warning(
+            'Background checkpoint [%s] still saving. Skipping save to %s.',
+            thread_name,
+            checkpoint_path,
+        )
+        return
+      prev.join()
 
     state = {
         'model_state': self.model.state_dict(),
@@ -310,10 +323,16 @@ class Trainer:
     # Copy state dict to CPU and perform saving in a background thread.
     cpu_state = _copy_state_to_cpu(state)
     self._ema.save(self.model, cpu_state)  # EMA weights as `model_state`.
-    self._ckpt_thread = threading.Thread(
+    thread = threading.Thread(
         target=lambda: save_fn(cpu_state, checkpoint_path),
     )
-    self._ckpt_thread.start()
+    thread.start()
+    self._ckpt_threads[thread_name] = thread
+
+  def wait_for_checkpoints(self) -> None:
+    """Blocks until all background checkpoint saves have finished."""
+    for thread in self._ckpt_threads.values():
+      thread.join()
 
   def load_checkpoint(self, checkpoint_path: str) -> dict[str, Any]:
     """Loads and returns the training state from a checkpoint file."""
