@@ -226,7 +226,7 @@ class ModelTest(parameterized.TestCase):
         batch_size_per_device=2,
     )
 
-    train_examples = [core.Example(x='hello', y=1.0)] * 4
+    train_examples = [core.Example(x='hello world', y=1.0)] * 4
 
     # --- Run both fine-tuning processes ---
     fine_tuner_base.fine_tune(train_examples, seed=42)
