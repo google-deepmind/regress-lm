@@ -197,6 +197,13 @@ class ModelTest(parameterized.TestCase):
     # Now 2 objectives for last axis.
     self.assertEqual(tuple(output_floats.shape), (2, 1024, 2))
 
+  def test_compile(self):
+    batch = self.model.converter.convert_examples([core.Example('hello', 1.0)])
+    self.model.eval()
+    log_probs = self.model.log_prob(batch)
+    self.model.compile(backend='eager')  # Only traces, so outputs match.
+    torch.testing.assert_close(self.model.log_prob(batch), log_probs)
+
   def test_gradient_accumulation_equivalence(self):
     torch.manual_seed(123)
 

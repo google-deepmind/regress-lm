@@ -141,6 +141,15 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         **self.cfg.architecture_kwargs,
     )
 
+  def compile(self, *args, **kwargs) -> None:
+    """Compiles the encoder and decoder in place with `torch.compile`."""
+    # This model has no `forward`, so compiling it as a whole would not speed
+    # up `decode` or `log_prob`. Inputs vary in length, so `dynamic=True` is
+    # the default to avoid recompilations.
+    kwargs.setdefault('dynamic', True)
+    self.encoder_decoder.encoder.compile(*args, **kwargs)
+    self.encoder_decoder.decoder.compile(*args, **kwargs)
+
   @property
   def device(self) -> torch.device:
     return next(self.parameters()).device
