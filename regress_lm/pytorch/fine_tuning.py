@@ -166,7 +166,7 @@ class PyTorchFineTuner(core.FineTuner):
           target_modules=target_modules,
           bias="none",
       )
-      self.lora_wrapper = peft.get_peft_model(model, self.lora_config)  # pyrefly: ignore[bad-argument-type]
+      self.lora_wrapper = peft.get_peft_model(self.model, self.lora_config)  # pyrefly: ignore[bad-argument-type]
       self.optimizer = optimizer_factory(self.lora_wrapper.named_parameters())  # pyrefly: ignore[bad-argument-type]
     else:
       self.lora_wrapper = None
