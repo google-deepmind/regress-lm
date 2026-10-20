@@ -67,7 +67,8 @@ class HybridOptimizer(optim.Optimizer):
 
 
 _NON_MUON_NAMES = [
-    "embed",  # Catches self.tgt_tok_emb and encoder.embedding
+    "embed",  # Catches encoder.embedding and embed_tokens
+    "tgt_tok_emb",  # Catches self.tgt_tok_emb (not matched by "embed")
     "shared",  # Standard for tied weights
     "generator",  # Catches self.generator (MLP to decoder vocab)
     "lm_head",  # Safety for T5Gemma/Transformers backends
