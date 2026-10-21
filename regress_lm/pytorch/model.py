@@ -45,9 +45,6 @@ class PyTorchModelConfig:
   architecture_kwargs: dict[str, Any]
   max_num_objs: int = 1
 
-  # Other settings
-  z_loss_coef: float | None = None
-
   @property
   def decode_len(self) -> int:
     return self.max_num_objs * self.decoder_vocab.num_tokens_per_obj
@@ -182,13 +179,6 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     loss_mask = (targets != self.cfg.decoder_vocab.bos_pad_id).float()  # pyrefly: ignore[missing-attribute]
     num_tokens = loss_mask.sum(dim=1).clamp(min=1)
     loss_per_example = ce_loss_per_tokens.sum(dim=1) / num_tokens
-
-    if self.cfg.z_loss_coef is not None:
-      log_z = torch.logsumexp(logits, dim=-1)
-      z_loss_per_token = self.cfg.z_loss_coef * (log_z**2)
-      loss_mask = (targets != self.cfg.decoder_vocab.bos_pad_id).float()  # pyrefly: ignore[missing-attribute]
-      z_loss_per_example = (z_loss_per_token * loss_mask).sum(dim=1)
-      loss_per_example = loss_per_example + z_loss_per_example
 
     metrics['loss_mean'] = loss_per_example.mean().detach()
     metrics['max_input_token_len'] = examples['input_token_lens'].max().detach()

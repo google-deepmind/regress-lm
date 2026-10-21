@@ -88,7 +88,6 @@ class RegressLM:
         or vocabs.DecoderVocab(tokenizers.IEEEFloatTokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
-        z_loss_coef=kwargs.get("z_loss_coef", None),
         architecture_kwargs=architecture_kwargs,
     )
 
@@ -131,7 +130,6 @@ class RegressLM:
         or vocabs.DecoderVocab(tokenizers.IEEEFloatTokenizer()),
         max_input_len=kwargs.get("max_input_len", 2048),
         max_num_objs=kwargs.get("max_num_objs", 1),
-        z_loss_coef=kwargs.get("z_loss_coef", None),
         architecture_kwargs=architecture_kwargs,
     )
 
