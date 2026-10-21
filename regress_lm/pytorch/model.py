@@ -22,6 +22,7 @@ from regress_lm import core
 from regress_lm import tokenizers
 from regress_lm import vocabs
 from regress_lm.pytorch import architecture
+from regress_lm.pytorch import decoders
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -213,15 +214,15 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         dtype=torch.long,
         device=self.device,
     )
-    cache = {}
+    cache = decoders.KVCache(self.cfg.decode_len)
     for step_idx in range(self.cfg.decode_len):
       curr_mask = self._next_token_mask(generated_sequences_ids[:, :step_idx])
 
       # Get logits for the next token for all (B * num_samples) sequences
       # Shape: (B*S, V)
-      logits = self.encoder_decoder.next_token_logits(
-          current_tgt_ids, memory, memory_key_padding_mask, cache=cache
-      )
+      logits = self.encoder_decoder.decoder_logits(
+          current_tgt_ids, memory, memory_key_padding_mask, cache
+      )[:, -1]
       masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
 
       # Apply temperature sampling, 1 token for each of the B*S sequences

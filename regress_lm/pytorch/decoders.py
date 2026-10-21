@@ -14,13 +14,34 @@
 
 """PyTorch decoder for RegressLM."""
 
+import dataclasses
+
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 Tensor = torch.Tensor
-# Raw (k, v) projections keyed by attention module, for step-by-step decoding.
-KVCache = dict[nn.Module, tuple[Tensor, Tensor]]
+
+
+@dataclasses.dataclass
+class KVCache:
+  """Preallocated keys/values per attention module for step-by-step decoding."""
+
+  max_len: int
+  pos: int = 0  # Self-attention positions decoded so far.
+  kv: dict[nn.Module, tuple[Tensor, Tensor]] = dataclasses.field(
+      default_factory=dict
+  )
+
+  def append_and_get(self, module: nn.Module, k: Tensor, v: Tensor):
+    """Appends (k, v) to `module`'s buffers; returns all keys/values so far."""
+    if module not in self.kv:
+      shape = (*k.shape[:2], self.max_len, k.shape[3])
+      self.kv[module] = (k.new_zeros(shape), v.new_zeros(shape))
+    k_buf, v_buf = self.kv[module]
+    end = self.pos + k.shape[2]
+    k_buf[:, :, self.pos : end], v_buf[:, :, self.pos : end] = k, v
+    return k_buf[:, :, :end], v_buf[:, :, :end]
 
 
 def _apply_rope(x: Tensor, pos: int = 0, base: float = 10000.0) -> Tensor:
@@ -50,16 +71,18 @@ class _Attention(nn.Module):
   def _split(self, x: Tensor) -> Tensor:
     return x.view(*x.shape[:2], self.nhead, self.head_dim).transpose(1, 2)
 
-  def _kv(self, kv: Tensor, cache: KVCache) -> tuple[Tensor, Tensor]:
-    """Projects keys and values, reusing or extending this module's cache."""
-    if self.is_cross and self in cache:
-      return cache[self]  # Memory is fixed, so its keys and values are too.
-    k, v = self._split(self.k_proj(kv)), self._split(self.v_proj(kv))
-    if self in cache:  # Self-attention: extend the cached prefix.
-      k0, v0 = cache[self]
-      k, v = torch.cat([k0, k], 2), torch.cat([v0, v], 2)
-    cache[self] = (k, v)
-    return k, v
+  def _project_kv(self, kv: Tensor, pos: int = 0) -> tuple[Tensor, Tensor]:
+    """Projects keys (normalized, rotated from `pos`) and values."""
+    k = F.rms_norm(self._split(self.k_proj(kv)), (self.head_dim,), eps=1e-6)
+    return _apply_rope(k, pos), self._split(self.v_proj(kv))
+
+  def _cached_kv(self, kv: Tensor, cache: KVCache) -> tuple[Tensor, Tensor]:
+    """Returns all keys/values so far, projecting only the new ones."""
+    if not self.is_cross:
+      return cache.append_and_get(self, *self._project_kv(kv, cache.pos))
+    if self not in cache.kv:  # Memory is fixed: project it once.
+      cache.kv[self] = self._project_kv(kv)
+    return cache.kv[self]
 
   def forward(
       self,
@@ -74,13 +97,10 @@ class _Attention(nn.Module):
     if bs % b:
       raise ValueError("Target batch must be a multiple of memory batch.")
     q = self._split(self.q_proj(x).reshape(b, -1, d))
-    k, v = self._kv(kv, {} if cache is None else cache)
     q = F.rms_norm(q, (self.head_dim,), eps=1e-6)
-    k = F.rms_norm(k, (self.head_dim,), eps=1e-6)
-    if self.is_cross:  # Keys only: steps and source positions are unrelated.
-      k = _apply_rope(k)
-    else:  # Queries are the newest positions.
-      q, k = _apply_rope(q, k.shape[2] - q.shape[2]), _apply_rope(k)
+    k, v = self._project_kv(kv) if cache is None else self._cached_kv(kv, cache)
+    if not self.is_cross:  # Steps are unrelated to source positions.
+      q = _apply_rope(q, cache.pos if cache else 0)
     # A lone query following a cached prefix attends to all of it: no mask.
     out = F.scaled_dot_product_attention(
         q, k, v, mask, is_causal=is_causal and q.shape[2] == k.shape[2]
@@ -136,4 +156,6 @@ class Decoder(nn.Module):
   ) -> Tensor:
     for layer in self.layers:
       tgt = layer(tgt, memory, pad_mask, cache)
+    if cache is not None:
+      cache.pos += tgt.shape[1]
     return self.norm(tgt)

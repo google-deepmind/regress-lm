@@ -67,14 +67,7 @@ class EncoderDecoder(nn.Module):
     self.generator = nn.Linear(d_enc, decoder_vocab_size)
 
   def forward(self, src: torch.Tensor, tgt_input: torch.Tensor) -> torch.Tensor:
-    src_padding_mask = src == self.encoder_pad_idx
-
-    with autocast("cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
-      with nn.attention.sdpa_kernel(SPD_BACKENDS):
-        memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
-        tgt = self.tgt_tok_emb(tgt_input)
-        out = self.decoder(tgt, memory, src_padding_mask)
-    return self.generator(out.float())
+    return self.decoder_logits(tgt_input, *self.encode(src))
 
   def encode(self, src: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Encodes the source sequence."""
@@ -84,18 +77,18 @@ class EncoderDecoder(nn.Module):
         memory = self.encoder(src, src_key_padding_mask=src_padding_mask)
     return memory, src_padding_mask
 
-  def next_token_logits(
+  def decoder_logits(
       self,
-      current_tgt_seq: torch.Tensor,
+      tgt_input: torch.Tensor,
       memory: torch.Tensor,
       memory_key_padding_mask: torch.Tensor,
       cache: decoders.KVCache | None = None,
   ) -> torch.Tensor:
-    """Decodes one step. (B * S, T) targets may share (B, L, D) memory."""
-    if cache:  # Earlier tokens are cached; run only the newest.
-      current_tgt_seq = current_tgt_seq[:, -1:]
+    """Logits (B * S, T, V) of targets that may share (B, L, D) memory."""
+    if cache and cache.pos:  # Earlier tokens are cached; run only the newest.
+      tgt_input = tgt_input[:, -1:]
     with autocast("cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
       with nn.attention.sdpa_kernel(SPD_BACKENDS):
-        tgt = self.tgt_tok_emb(current_tgt_seq)
+        tgt = self.tgt_tok_emb(tgt_input)
         out = self.decoder(tgt, memory, memory_key_padding_mask, cache=cache)
-    return self.generator(out[:, -1, :].float())
+    return self.generator(out.float())

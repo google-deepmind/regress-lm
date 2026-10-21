@@ -15,6 +15,7 @@
 """Tests for the PyTorch architecture."""
 
 from regress_lm.pytorch import architecture
+from regress_lm.pytorch import decoders
 import torch
 from absl.testing import absltest
 
@@ -86,52 +87,36 @@ class ArchitectureTest(absltest.TestCase):
     self.assertTrue(torch.all(memory_key_padding_mask[0, -3:]).item())
     self.assertFalse(torch.any(memory_key_padding_mask[0, :-3]).item())
 
-  def test_next_token_logits(self):
+  def test_decoder_logits(self):
     src = torch.randint(
         1, self.encoder_vocab_size, (self.batch_size, self.src_seq_len)
     )
-    memory, memory_key_padding_mask = self.model.encode(src)
+    memory, mask = self.model.encode(src)
 
-    # Simulate decoding one step with just a start token
-    current_tgt_len = 1
-    current_tgt_seq = torch.full(
-        (self.batch_size, current_tgt_len),
-        self.decoder_pad_idx,
-        dtype=torch.long,
-    )
-
-    next_token_logits = self.model.next_token_logits(
-        current_tgt_seq, memory, memory_key_padding_mask
-    )
-
-    self.assertEqual(
-        next_token_logits.shape, (self.batch_size, self.decoder_vocab_size)
-    )
-
-    # Simulate decoding a few more steps
+    # Simulate decoding a few steps, starting with the start (padding) token.
     current_tgt_len = 3
     current_tgt_seq = torch.randint(
         1, self.decoder_vocab_size, (self.batch_size, current_tgt_len)
     )
-    # Ensure it starts with start token
     current_tgt_seq[:, 0] = self.decoder_pad_idx
-
-    next_token_logits_multi = self.model.next_token_logits(
-        current_tgt_seq, memory, memory_key_padding_mask
-    )
+    logits = self.model.decoder_logits(current_tgt_seq, memory, mask)
     self.assertEqual(
-        next_token_logits_multi.shape,
-        (self.batch_size, self.decoder_vocab_size),
+        logits.shape,
+        (self.batch_size, current_tgt_len, self.decoder_vocab_size),
     )
-    cache = {}
-    for t in range(1, current_tgt_len + 1):
-      seq, mask = current_tgt_seq[:, :t], memory_key_padding_mask
-      cached = self.model.next_token_logits(seq, memory, mask, cache)
-      uncached = self.model.next_token_logits(seq, memory, mask)
-      torch.testing.assert_close(cached, uncached)
-    # An empty cache runs the whole prefix (causally), then caches it.
-    prefill = self.model.next_token_logits(seq, memory, mask, {})
-    torch.testing.assert_close(prefill, uncached)
+
+    # KV-cached one-token steps match the uncached full-prefix logits.
+    cache = decoders.KVCache(current_tgt_len)
+    for t in range(current_tgt_len):
+      cached = self.model.decoder_logits(
+          current_tgt_seq[:, : t + 1], memory, mask, cache
+      )
+      torch.testing.assert_close(cached[:, -1], logits[:, t])
+    # A fresh cache runs the whole prefix (causally), then caches it.
+    prefill = self.model.decoder_logits(
+        current_tgt_seq, memory, mask, decoders.KVCache(current_tgt_len)
+    )
+    torch.testing.assert_close(prefill, logits)
 
   def test_basic_autoregressive_decode_loop(self):
     batch_size = 1
@@ -148,9 +133,9 @@ class ArchitectureTest(absltest.TestCase):
 
     for _ in range(max_decode_steps):
       # (1, num_decoder_tokens)
-      next_token_logits = self.model.next_token_logits(
+      next_token_logits = self.model.decoder_logits(
           current_tgt_tokens, memory, memory_key_padding_mask
-      )
+      )[:, -1]
 
       # Get the token ID
       predicted_token_id = torch.argmax(next_token_logits, dim=1).item()
@@ -172,11 +157,11 @@ class ArchitectureTest(absltest.TestCase):
     src[0, -3:] = self.encoder_pad_idx
     memory, padding_mask = self.model.encode(src)
     tgt = torch.randint(0, self.decoder_vocab_size, (2 * 3, 4))  # 3 samples.
-    copied = self.model(src.repeat_interleave(3, dim=0), tgt)[:, -1]
-    shared = self.model.next_token_logits(tgt, memory, padding_mask)
+    copied = self.model(src.repeat_interleave(3, dim=0), tgt)
+    shared = self.model.decoder_logits(tgt, memory, padding_mask)
     torch.testing.assert_close(shared, copied, atol=1e-4, rtol=1e-4)
     with self.assertRaises(ValueError):  # 5 is not a multiple of 2.
-      self.model.next_token_logits(tgt[1:], memory, padding_mask)
+      self.model.decoder_logits(tgt[1:], memory, padding_mask)
 
   def test_cross_attention_rotates_keys_only(self):
     attn = self.model.decoder.layers[0].cross_attn
