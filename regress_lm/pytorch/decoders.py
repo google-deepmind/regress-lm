@@ -18,12 +18,16 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+Tensor = torch.Tensor
+# Raw (k, v) projections keyed by attention module, for step-by-step decoding.
+KVCache = dict[nn.Module, tuple[Tensor, Tensor]]
 
-def _apply_rope(x: torch.Tensor, base: float = 10000.0) -> torch.Tensor:
+
+def _apply_rope(x: Tensor, pos: int = 0, base: float = 10000.0) -> Tensor:
   """Applies Rotary Positional Embedding (RoPE) to (B, H, T, D_h)."""
   t, d = x.shape[-2:]
   inv_freq = base ** (-torch.arange(0, d, 2, device=x.device).float() / d)
-  freqs = torch.arange(t, device=x.device).float()[:, None] * inv_freq
+  freqs = (pos + torch.arange(t, device=x.device).float())[:, None] * inv_freq
   cos, sin = freqs.cos(), freqs.sin()
   x0, x1 = x.float().reshape(*x.shape[:-1], -1, 2).unbind(-1)
   out = torch.stack([x0 * cos - x1 * sin, x0 * sin + x1 * cos], -1).flatten(-2)
@@ -43,29 +47,44 @@ class _Attention(nn.Module):
     self.v_proj = nn.Linear(d_model, d_model)
     self.out_proj = nn.Linear(d_model, d_model)
 
-  def _split(self, x: torch.Tensor) -> torch.Tensor:
+  def _split(self, x: Tensor) -> Tensor:
     return x.view(*x.shape[:2], self.nhead, self.head_dim).transpose(1, 2)
+
+  def _kv(self, kv: Tensor, cache: KVCache) -> tuple[Tensor, Tensor]:
+    """Projects keys and values, reusing or extending this module's cache."""
+    if self.is_cross and self in cache:
+      return cache[self]  # Memory is fixed, so its keys and values are too.
+    k, v = self._split(self.k_proj(kv)), self._split(self.v_proj(kv))
+    if self in cache:  # Self-attention: extend the cached prefix.
+      k0, v0 = cache[self]
+      k, v = torch.cat([k0, k], 2), torch.cat([v0, v], 2)
+    cache[self] = (k, v)
+    return k, v
 
   def forward(
       self,
-      x: torch.Tensor,
-      kv: torch.Tensor,
-      mask: torch.Tensor | None = None,
+      x: Tensor,
+      kv: Tensor,
+      mask: Tensor | None = None,
       is_causal: bool = False,
-  ) -> torch.Tensor:
+      cache: KVCache | None = None,
+  ) -> Tensor:
     bs, t, d = x.shape
     b = kv.shape[0]
     if bs % b:
       raise ValueError("Target batch must be a multiple of memory batch.")
     q = self._split(self.q_proj(x).reshape(b, -1, d))
-    k, v = self._split(self.k_proj(kv)), self._split(self.v_proj(kv))
+    k, v = self._kv(kv, {} if cache is None else cache)
     q = F.rms_norm(q, (self.head_dim,), eps=1e-6)
     k = F.rms_norm(k, (self.head_dim,), eps=1e-6)
     if self.is_cross:  # Keys only: steps and source positions are unrelated.
       k = _apply_rope(k)
-    else:
-      q, k = _apply_rope(q), _apply_rope(k)
-    out = F.scaled_dot_product_attention(q, k, v, mask, is_causal=is_causal)
+    else:  # Queries are the newest positions.
+      q, k = _apply_rope(q, k.shape[2] - q.shape[2]), _apply_rope(k)
+    # A lone query following a cached prefix attends to all of it: no mask.
+    out = F.scaled_dot_product_attention(
+        q, k, v, mask, is_causal=is_causal and q.shape[2] == k.shape[2]
+    )
     return self.out_proj(out.transpose(1, 2).contiguous().view(bs, t, d))
 
 
@@ -85,14 +104,15 @@ class _DecoderLayer(nn.Module):
 
   def forward(
       self,
-      x: torch.Tensor,
-      memory: torch.Tensor,
-      pad_mask: torch.Tensor | None = None,
-  ) -> torch.Tensor:
+      x: Tensor,
+      memory: Tensor,
+      pad_mask: Tensor | None = None,
+      cache: KVCache | None = None,
+  ) -> Tensor:
     mask = ~pad_mask[:, None, None, :] if pad_mask is not None else None
     nx = self.norm1(x)
-    x = x + self.self_attn(nx, nx, is_causal=True)
-    x = x + self.cross_attn(self.norm2(x), memory, mask=mask)
+    x = x + self.self_attn(nx, nx, is_causal=True, cache=cache)
+    x = x + self.cross_attn(self.norm2(x), memory, mask=mask, cache=cache)
     ff = F.relu(self.linear1(self.norm3(x))).square()
     return x + self.linear2(self.dropout(ff))
 
@@ -109,10 +129,11 @@ class Decoder(nn.Module):
 
   def forward(
       self,
-      tgt: torch.Tensor,
-      memory: torch.Tensor,
-      pad_mask: torch.Tensor | None = None,
-  ) -> torch.Tensor:
+      tgt: Tensor,
+      memory: Tensor,
+      pad_mask: Tensor | None = None,
+      cache: KVCache | None = None,
+  ) -> Tensor:
     for layer in self.layers:
-      tgt = layer(tgt, memory, pad_mask)
+      tgt = layer(tgt, memory, pad_mask, cache)
     return self.norm(tgt)

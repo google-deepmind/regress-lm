@@ -123,6 +123,15 @@ class ArchitectureTest(absltest.TestCase):
         next_token_logits_multi.shape,
         (self.batch_size, self.decoder_vocab_size),
     )
+    cache = {}
+    for t in range(1, current_tgt_len + 1):
+      seq, mask = current_tgt_seq[:, :t], memory_key_padding_mask
+      cached = self.model.next_token_logits(seq, memory, mask, cache)
+      uncached = self.model.next_token_logits(seq, memory, mask)
+      torch.testing.assert_close(cached, uncached)
+    # An empty cache runs the whole prefix (causally), then caches it.
+    prefill = self.model.next_token_logits(seq, memory, mask, {})
+    torch.testing.assert_close(prefill, uncached)
 
   def test_basic_autoregressive_decode_loop(self):
     batch_size = 1

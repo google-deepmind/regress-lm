@@ -89,10 +89,13 @@ class EncoderDecoder(nn.Module):
       current_tgt_seq: torch.Tensor,
       memory: torch.Tensor,
       memory_key_padding_mask: torch.Tensor,
+      cache: decoders.KVCache | None = None,
   ) -> torch.Tensor:
     """Decodes one step. (B * S, T) targets may share (B, L, D) memory."""
+    if cache:  # Earlier tokens are cached; run only the newest.
+      current_tgt_seq = current_tgt_seq[:, -1:]
     with autocast("cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
       with nn.attention.sdpa_kernel(SPD_BACKENDS):
         tgt = self.tgt_tok_emb(current_tgt_seq)
-        out = self.decoder(tgt, memory, memory_key_padding_mask)
+        out = self.decoder(tgt, memory, memory_key_padding_mask, cache=cache)
     return self.generator(out[:, -1, :].float())

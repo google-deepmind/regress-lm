@@ -213,13 +213,14 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
         dtype=torch.long,
         device=self.device,
     )
+    cache = {}
     for step_idx in range(self.cfg.decode_len):
       curr_mask = self._next_token_mask(generated_sequences_ids[:, :step_idx])
 
       # Get logits for the next token for all (B * num_samples) sequences
       # Shape: (B*S, V)
       logits = self.encoder_decoder.next_token_logits(
-          current_tgt_ids, memory, memory_key_padding_mask
+          current_tgt_ids, memory, memory_key_padding_mask, cache=cache
       )
       masked_logits = (1.0 - curr_mask) * NEG_INF + curr_mask * logits
 
@@ -228,10 +229,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       token_ids = torch.multinomial(probs, num_samples=1)  # (B*S, 1)
       # Store the predicted token IDs
       generated_sequences_ids[:, step_idx] = token_ids.squeeze(-1)
-
-      # Prepare input for the next step, but only if not the last float token
-      if step_idx < self.cfg.decode_len - 1:
-        current_tgt_ids = torch.cat([current_tgt_ids, token_ids], dim=1)
+      current_tgt_ids = token_ids
 
     # Reshape outputs back to (B, num_samples, L_decode)
     final_decoded_ids = generated_sequences_ids.view(
