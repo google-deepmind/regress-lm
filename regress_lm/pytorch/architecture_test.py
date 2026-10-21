@@ -169,6 +169,16 @@ class ArchitectureTest(absltest.TestCase):
     with self.assertRaises(ValueError):  # 5 is not a multiple of 2.
       self.model.next_token_logits(tgt[1:], memory, padding_mask)
 
+  def test_cross_attention_rotates_keys_only(self):
+    attn = self.model.decoder.layers[0].cross_attn
+    x = torch.randn(2, 4, self.d_model)
+    memory = torch.randn(2, 7, self.d_model)
+    out = attn(x, memory)
+    # Unrotated queries: step t depends on x_t and the memory alone. Rotated
+    # keys: the output depends on where each source token sits.
+    torch.testing.assert_close(attn(x[:, 3:4], memory)[:, 0], out[:, 3])
+    self.assertFalse(torch.allclose(attn(x, memory.flip(1)), out))
+
   def test_decoder_layers_independently_initialized(self):
     model = architecture.EncoderDecoder(
         encoder_vocab_size=self.encoder_vocab_size,

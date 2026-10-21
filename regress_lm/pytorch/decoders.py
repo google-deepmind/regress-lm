@@ -31,13 +31,13 @@ def _apply_rope(x: torch.Tensor, base: float = 10000.0) -> torch.Tensor:
 
 
 class _Attention(nn.Module):
-  """Multi-head attention with QK-RMSNorm, optional RoPE, and shared memory."""
+  """Multi-head attention with QK-RMSNorm, RoPE, and shared memory."""
 
-  def __init__(self, d_model: int, nhead: int = 8, use_rope: bool = False):
+  def __init__(self, d_model: int, nhead: int = 8, is_cross: bool = False):
     super().__init__()
     self.nhead = nhead
     self.head_dim = d_model // nhead
-    self.use_rope = use_rope
+    self.is_cross = is_cross
     self.q_proj = nn.Linear(d_model, d_model)
     self.k_proj = nn.Linear(d_model, d_model)
     self.v_proj = nn.Linear(d_model, d_model)
@@ -61,7 +61,9 @@ class _Attention(nn.Module):
     k, v = self._split(self.k_proj(kv)), self._split(self.v_proj(kv))
     q = F.rms_norm(q, (self.head_dim,), eps=1e-6)
     k = F.rms_norm(k, (self.head_dim,), eps=1e-6)
-    if self.use_rope:
+    if self.is_cross:  # Keys only: steps and source positions are unrelated.
+      k = _apply_rope(k)
+    else:
       q, k = _apply_rope(q), _apply_rope(k)
     out = F.scaled_dot_product_attention(q, k, v, mask, is_causal=is_causal)
     return self.out_proj(out.transpose(1, 2).contiguous().view(bs, t, d))
@@ -73,9 +75,9 @@ class _DecoderLayer(nn.Module):
   def __init__(self, d_model: int, nhead: int = 8, dropout: float = 0.0):
     super().__init__()
     self.norm1 = nn.RMSNorm(d_model, eps=1e-6)
-    self.self_attn = _Attention(d_model, nhead, use_rope=True)
+    self.self_attn = _Attention(d_model, nhead)
     self.norm2 = nn.RMSNorm(d_model, eps=1e-6)
-    self.cross_attn = _Attention(d_model, nhead, use_rope=False)
+    self.cross_attn = _Attention(d_model, nhead, is_cross=True)
     self.norm3 = nn.RMSNorm(d_model, eps=1e-6)
     self.linear1 = nn.Linear(d_model, 4 * d_model)
     self.dropout = nn.Dropout(dropout)
