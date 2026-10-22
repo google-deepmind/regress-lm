@@ -74,7 +74,8 @@ class _Attention(nn.Module):
   def _project_kv(self, kv: Tensor, pos: int = 0) -> tuple[Tensor, Tensor]:
     """Projects keys (normalized, rotated from `pos`) and values."""
     k = F.rms_norm(self._split(self.k_proj(kv)), (self.head_dim,), eps=1e-6)
-    return _apply_rope(k, pos), self._split(self.v_proj(kv))
+    v = self._split(self.v_proj(kv))
+    return _apply_rope(k, pos).type_as(v), v  # Autocast upcasts rms_norm.
 
   def _cached_kv(self, kv: Tensor, cache: KVCache) -> tuple[Tensor, Tensor]:
     """Returns all keys/values so far, projecting only the new ones."""
