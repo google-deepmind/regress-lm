@@ -152,22 +152,17 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
   def device(self) -> torch.device:
     return next(self.parameters()).device
 
-  def to_device(
-      self, batch: dict[str, Tensor] | Tensor
-  ) -> dict[str, Tensor] | Tensor:
-    if isinstance(batch, dict):
-      return {k: v.to(self.device, non_blocking=True) for k, v in batch.items()}
-    return batch.to(self.device, non_blocking=True)
+  def to_device(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
+    return {k: v.to(self.device, non_blocking=True) for k, v in batch.items()}
 
   def compute_losses_and_metrics(
       self, examples: dict[str, Tensor]
   ) -> tuple[Tensor, dict[str, Tensor]]:
-    metrics = {}
+    examples = self.to_device(examples)
     logits = self.encoder_decoder.forward(
-        self.to_device(examples['encoder_input']),
-        self.to_device(examples['decoder_input']),
+        examples['encoder_input'], examples['decoder_input']
     )
-    targets = self.to_device(examples['decoder_target'])
+    targets = examples['decoder_target']
 
     ce_loss_per_tokens = F.cross_entropy(
         logits.permute(0, 2, 1),
@@ -181,6 +176,7 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     num_tokens = loss_mask.sum(dim=1).clamp(min=1)
     loss_per_example = ce_loss_per_tokens.sum(dim=1) / num_tokens
 
+    metrics = {}
     metrics['loss_mean'] = loss_per_example.mean().detach()
     metrics['max_input_token_len'] = examples['input_token_lens'].max().detach()
     return loss_per_example, metrics
@@ -192,9 +188,9 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
       num_samples: int,
       temperature: float = 1.0,
   ) -> tuple[Tensor, np.ndarray]:
-    inputs = self.converter.trim_padding(inputs)
-    encoder_input = self.to_device(inputs['encoder_input'])  # (B, L_src)
-    batch_size = encoder_input.shape[0]  # pyrefly: ignore[missing-attribute]
+    inputs = self.to_device(self.converter.trim_padding(inputs))
+    encoder_input = inputs['encoder_input']  # (B, L_src)
+    batch_size = encoder_input.shape[0]
     expanded_batch_size = batch_size * num_samples
     # memory: (B, L_src, D_model), memory_key_padding_mask: (B, L_src)
     # These are shared by (not copied for) the num_samples decoded sequences.
@@ -264,16 +260,15 @@ class PyTorchModel(nn.Module, core.Model[Tensor]):
     return mask.to(self.device)
 
   def log_prob(self, examples: dict[str, Tensor]) -> Tensor:
-    examples = self.converter.trim_padding(examples)
+    examples = self.to_device(self.converter.trim_padding(examples))
     logits = self.encoder_decoder.forward(
-        self.to_device(examples['encoder_input']),
-        self.to_device(examples['decoder_input']),
+        examples['encoder_input'], examples['decoder_input']
     )
     log_probs = F.log_softmax(logits, dim=-1)
 
-    dec_target = self.to_device(examples['decoder_target'])
+    dec_target = examples['decoder_target']
     true_log_probs = torch.gather(
-        log_probs, dim=2, index=dec_target.unsqueeze(-1)  # pyrefly: ignore[missing-attribute]
+        log_probs, dim=2, index=dec_target.unsqueeze(-1)
     )
 
     pad_mask = dec_target != self.cfg.decoder_vocab.bos_pad_id

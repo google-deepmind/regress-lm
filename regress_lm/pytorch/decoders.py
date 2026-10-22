@@ -104,7 +104,7 @@ class _Attention(nn.Module):
       q = _apply_rope(q, cache.pos if cache else 0)
     # A lone query following a cached prefix attends to all of it: no mask.
     out = F.scaled_dot_product_attention(
-        q, k, v, mask, is_causal=is_causal and q.shape[2] == k.shape[2]
+        q, k, v, mask, is_causal=is_causal and not (cache and cache.pos)
     )
     return self.out_proj(out.transpose(1, 2).contiguous().view(bs, t, d))
 
